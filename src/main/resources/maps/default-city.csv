@@ -1,0 +1,64 @@
+# reference city map file - this is the format Ayesha's PersistenceService
+# (persistence.PersistenceService, see docs/TODO_Ayesha.md) should parse.
+#
+# NOTE: this file is not read by the app yet. DefaultCityMapFactory
+# currently builds this exact same 3x3 grid directly in java as a
+# temporary bootstrap. once the real CSV loader exists, Main.java should
+# load this file through it instead.
+#
+# format: two sections, each with its own header row. lines starting
+# with '#' are comments and should be skipped by the parser.
+#
+# [INTERSECTIONS]
+# id      - unique intersection id
+# x, y    - position in meters, used for gui layout
+#
+# [ROADS]
+# id                - unique road id (convention: "<fromId>-<toId>")
+# fromId, toId      - the two intersections this road connects (directed:
+#                     this road only carries traffic from fromId to toId -
+#                     a normal two-way street is two rows, one each way)
+# lengthMeters       - road length, used with vehicle speed for travel time
+# lanes              - lane count, used for congestion capacity
+# approachDirection  - compass side of `toId` this road arrives at
+#                     (NORTH, SOUTH, EAST or WEST) - this is what an
+#                     arriving vehicle queues as at the toId intersection
+
+[INTERSECTIONS]
+id,x,y
+I00,0,0
+I01,180,0
+I02,360,0
+I10,0,180
+I11,180,180
+I12,360,180
+I20,0,360
+I21,180,360
+I22,360,360
+
+[ROADS]
+id,fromId,toId,lengthMeters,lanes,approachDirection
+I00-I01,I00,I01,180,2,WEST
+I01-I00,I01,I00,180,2,EAST
+I01-I02,I01,I02,180,2,WEST
+I02-I01,I02,I01,180,2,EAST
+I10-I11,I10,I11,180,2,WEST
+I11-I10,I11,I10,180,2,EAST
+I11-I12,I11,I12,180,2,WEST
+I12-I11,I12,I11,180,2,EAST
+I20-I21,I20,I21,180,2,WEST
+I21-I20,I21,I20,180,2,EAST
+I21-I22,I21,I22,180,2,WEST
+I22-I21,I22,I21,180,2,EAST
+I00-I10,I00,I10,180,2,NORTH
+I10-I00,I10,I00,180,2,SOUTH
+I10-I20,I10,I20,180,2,NORTH
+I20-I10,I20,I10,180,2,SOUTH
+I01-I11,I01,I11,180,2,NORTH
+I11-I01,I11,I01,180,2,SOUTH
+I11-I21,I11,I21,180,2,NORTH
+I21-I11,I21,I11,180,2,SOUTH
+I02-I12,I02,I12,180,2,NORTH
+I12-I02,I12,I02,180,2,SOUTH
+I12-I22,I12,I22,180,2,NORTH
+I22-I12,I22,I12,180,2,SOUTH
