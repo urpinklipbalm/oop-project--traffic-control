@@ -1,0 +1,21 @@
+# build output
+target/
+out/
+*.class
+
+# runtime logs and saved simulation data (generated, not source)
+logs/
+saves/
+
+# ide files
+.claude/
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# os junk
+.DS_Store
