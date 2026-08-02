@@ -17,6 +17,29 @@ import com.trafficcontrol.model.Vehicle;
  */
 public interface TrafficEventPublisher {
 
+    /** used as a safe default before a component's real publisher (the SimulationEngine) is wired in. */
+    TrafficEventPublisher NO_OP = new TrafficEventPublisher() {
+        @Override
+        public void publishVehicleSpawned(Vehicle vehicle) {
+        }
+
+        @Override
+        public void publishVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
+        }
+
+        @Override
+        public void publishLightPhaseChanged(String intersectionId, LightPhase phase) {
+        }
+
+        @Override
+        public void publishPreemption(String intersectionId, Direction direction) {
+        }
+
+        @Override
+        public void publishMessage(String message) {
+        }
+    };
+
     void publishVehicleSpawned(Vehicle vehicle);
 
     void publishVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis);

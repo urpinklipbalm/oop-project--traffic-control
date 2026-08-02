@@ -1,7 +1,5 @@
 package com.trafficcontrol.model;
 
-import com.trafficcontrol.observer.TrafficEventPublisher;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.EnumMap;
@@ -24,10 +22,10 @@ public class Intersection {
     private final Map<Direction, Deque<Vehicle>> queues = new EnumMap<>(Direction.class);
     private final ReentrantLock queueLock = new ReentrantLock();
 
-    public Intersection(String id, Position position, TrafficEventPublisher publisher) {
+    public Intersection(String id, Position position) {
         this.id = id;
         this.position = position;
-        this.trafficLight = new TrafficLight(id, publisher);
+        this.trafficLight = new TrafficLight(id);
         for (Direction direction : Direction.values()) {
             queues.put(direction, new ArrayDeque<>());
         }

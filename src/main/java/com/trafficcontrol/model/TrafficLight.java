@@ -18,6 +18,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * means more than just guarding a shared counter: it's genuine
  * producer/consumer-style coordination between the light's own thread and
  * whichever thread calls preempt().
+ *
+ * publisher starts as a no-op and is wired in later via setPublisher()
+ * rather than the constructor - CityMap/Intersection/TrafficLight get
+ * built before the SimulationEngine (which IS the real publisher)
+ * exists, so requiring it at construction would be a circular
+ * dependency between "build the map" and "start the engine".
  */
 public class TrafficLight implements Runnable {
 
@@ -33,7 +39,7 @@ public class TrafficLight implements Runnable {
     static final long MAX_GREEN_MILLIS = 9000;
 
     private final String intersectionId;
-    private final TrafficEventPublisher publisher;
+    private volatile TrafficEventPublisher publisher = TrafficEventPublisher.NO_OP;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition phaseCondition = lock.newCondition();
 
@@ -50,8 +56,12 @@ public class TrafficLight implements Runnable {
 
     private volatile boolean running = true;
 
-    public TrafficLight(String intersectionId, TrafficEventPublisher publisher) {
+    public TrafficLight(String intersectionId) {
         this.intersectionId = intersectionId;
+    }
+
+    /** wired in by SimulationEngine once it exists - see the class-level note on why this isn't a constructor arg. */
+    public void setPublisher(TrafficEventPublisher publisher) {
         this.publisher = publisher;
     }
 

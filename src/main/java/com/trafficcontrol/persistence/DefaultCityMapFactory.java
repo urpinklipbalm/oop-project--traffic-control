@@ -5,7 +5,6 @@ import com.trafficcontrol.model.Direction;
 import com.trafficcontrol.model.Intersection;
 import com.trafficcontrol.model.Position;
 import com.trafficcontrol.model.Road;
-import com.trafficcontrol.observer.TrafficEventPublisher;
 
 /**
  * TEMPORARY bootstrap data. builds a hardcoded 3x3 grid city so the
@@ -24,7 +23,7 @@ public final class DefaultCityMapFactory {
     private DefaultCityMapFactory() {
     }
 
-    public static CityMap createDefaultGrid(TrafficEventPublisher publisher) {
+    public static CityMap createDefaultGrid() {
         CityMap cityMap = new CityMap();
         Intersection[][] grid = new Intersection[GRID_SIZE][GRID_SIZE];
 
@@ -32,7 +31,7 @@ public final class DefaultCityMapFactory {
             for (int col = 0; col < GRID_SIZE; col++) {
                 String id = "I" + row + col;
                 Position position = new Position(col * SPACING_METERS, row * SPACING_METERS);
-                Intersection intersection = new Intersection(id, position, publisher);
+                Intersection intersection = new Intersection(id, position);
                 grid[row][col] = intersection;
                 cityMap.addIntersection(intersection);
             }
