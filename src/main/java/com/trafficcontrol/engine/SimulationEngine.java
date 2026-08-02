@@ -82,6 +82,10 @@ public class SimulationEngine implements TrafficEventPublisher {
         int intersectionCount = cityMap.getIntersections().size();
         executor = Executors.newFixedThreadPool(intersectionCount + 3, new DaemonThreadFactory());
 
+        // announced before any worker starts, otherwise the spawner can log its first
+        // vehicle before the "started" line and the event log reads out of order.
+        publishMessage("simulation started with " + intersectionCount + " intersections");
+
         for (Intersection intersection : cityMap.getIntersections()) {
             intersection.getTrafficLight().setPublisher(this);
             submitNamed(intersection.getTrafficLight(), "traffic-light-" + intersection.getId());
