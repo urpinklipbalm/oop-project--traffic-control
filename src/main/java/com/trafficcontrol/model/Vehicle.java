@@ -114,11 +114,23 @@ public abstract class Vehicle {
      * any dependency on the engine package.
      */
     public boolean hasFinishedCurrentRoad(long nowMillis, double speedFactor) {
+        return getProgressAlongRoad(nowMillis, speedFactor) >= 1.0;
+    }
+
+    /**
+     * how far along the current road this vehicle is, from 0.0 at the start to
+     * 1.0 at the far end. the gui uses this to interpolate a vehicle's position
+     * between the two intersections when drawing it.
+     */
+    public double getProgressAlongRoad(long nowMillis, double speedFactor) {
         if (currentRoad == null) {
-            return false;
+            return 0.0;
         }
-        long travelTimeMillis = Math.round(currentRoad.getTravelTimeMillis(getSpeedMetersPerSecond()) / speedFactor);
-        return nowMillis - roadEntryTimeMillis >= travelTimeMillis;
+        double travelTimeMillis = currentRoad.getTravelTimeMillis(getSpeedMetersPerSecond()) / speedFactor;
+        if (travelTimeMillis <= 0) {
+            return 1.0;
+        }
+        return Math.min(1.0, (nowMillis - roadEntryTimeMillis) / travelTimeMillis);
     }
 
     public void startWaiting(long nowMillis) {

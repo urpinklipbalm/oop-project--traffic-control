@@ -1,5 +1,6 @@
 package com.trafficcontrol.model;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -71,8 +72,13 @@ public class Road {
         vehiclesOnRoad.remove(vehicle);
     }
 
+    /**
+     * read-only view for the mover and the gui. wrapped so callers can't add or
+     * remove vehicles behind this road's back; iteration stays safe without
+     * locking because the underlying list is copy-on-write.
+     */
     public List<Vehicle> getVehiclesOnRoad() {
-        return vehiclesOnRoad;
+        return Collections.unmodifiableList(vehiclesOnRoad);
     }
 
     /** rough congestion signal: how full this road is relative to a naive per-lane capacity. */

@@ -30,11 +30,12 @@ New file: `src/main/java/com/trafficcontrol/gui/CityPanel.java`, a
   adding some margin gives a reasonably sized window).
 - Draw each `Road` as a line between its `from`/`to` intersections.
 - Draw a colored dot per vehicle currently on a road
-  (`Road.getVehiclesOnRoad()`, interpolate its position along the line
-  using how far through the road's travel time it is), using
-  `Vehicle.getColor()` - this is where the polymorphic
-  `getColor()`/`getTypeName()` on each vehicle subtype actually gets
-  used visually.
+  (`Road.getVehiclesOnRoad()`), using `Vehicle.getColor()` - this is
+  where the polymorphic `getColor()`/`getTypeName()` on each vehicle
+  subtype actually gets used visually. To place the dot, call
+  `vehicle.getProgressAlongRoad(System.currentTimeMillis(), engine.getClock().getSpeedFactor())`
+  - it returns 0.0 at the road's start and 1.0 at its end, so you can
+  lerp between the two intersections' positions.
 - Color each intersection's light indicator based on
   `TrafficLight.getPhase()` (or subscribe to `onLightPhaseChanged` and
   cache the latest phase per intersection id - don't call into the
@@ -48,6 +49,10 @@ New file: `src/main/java/com/trafficcontrol/gui/CityPanel.java`, a
 New file: `src/main/java/com/trafficcontrol/gui/ControlPanel.java`
 
 - Start / Pause / Reset buttons (wired to `SimulationEngine`).
+- A simulation speed slider - `engine.getClock().setSpeedFactor(...)`,
+  valid range `SimulationClock.MIN_SPEED_FACTOR` to `MAX_SPEED_FACTOR`.
+  It is safe to change while the simulation is running; the mover picks
+  the new value up on its next tick.
 - A "Spawn Emergency Vehicle" button - for now `VehicleSpawner` only
   spawns randomly; if you want an on-demand spawn, either add a small
   `spawnNow(Class<? extends Vehicle> type)`-style method to
