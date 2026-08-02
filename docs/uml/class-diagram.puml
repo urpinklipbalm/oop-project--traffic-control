@@ -1,0 +1,177 @@
+@startuml SmartCityTrafficControl
+
+' same diagram as class-diagram.md, in PlantUML syntax for anyone who
+' prefers that toolchain (e.g. the PlantUML VS Code extension, or
+' plantuml.com's online renderer) to export a PNG/PDF for submission.
+
+abstract class Vehicle {
+  -id: String
+  -route: List<Intersection>
+  -routeIndex: int
+  -travelState: TravelState
+  -currentRoad: Road
+  +getPriority(): int
+  +getSpeedMetersPerSecond(): double
+  +getColor(): Color
+  +getTypeName(): String
+  +advanceToNextIntersection()
+  +isAtDestination(): boolean
+  +enterRoad(Road, long)
+  +hasFinishedCurrentRoad(long): boolean
+}
+class Car
+class Bus
+class Motorcycle
+class EmergencyVehicle {
+  +{static} PRIORITY: int
+}
+Vehicle <|-- Car
+Vehicle <|-- Bus
+Vehicle <|-- Motorcycle
+Vehicle <|-- EmergencyVehicle
+
+enum Direction {
+  NORTH
+  SOUTH
+  EAST
+  WEST
+  +isNorthSouthAxis(): boolean
+  +opposite(): Direction
+}
+
+enum LightPhase {
+  NS_GREEN
+  NS_YELLOW
+  EW_GREEN
+  EW_YELLOW
+  ALL_RED
+  +isGreenFor(Direction): boolean
+}
+
+class Position {
+  -x: double
+  -y: double
+}
+
+class Road {
+  -id: String
+  -from: Intersection
+  -to: Intersection
+  -lengthMeters: double
+  -lanes: int
+  -approachDirection: Direction
+  +getTravelTimeMillis(double): long
+  +getCongestionRatio(): double
+}
+
+class TrafficLight implements Runnable {
+  -intersectionId: String
+  -phase: LightPhase
+  -preemptRequested: boolean
+  +run()
+  +preempt(Direction)
+  +isGreenFor(Direction): boolean
+  +setNsGreenDurationMillis(long)
+  +setEwGreenDurationMillis(long)
+}
+
+class Intersection {
+  -id: String
+  -position: Position
+  -trafficLight: TrafficLight
+  -queues: Map<Direction, Deque<Vehicle>>
+  +enqueue(Direction, Vehicle)
+  +tryDequeue(Direction): Vehicle
+  +getQueueLength(Direction): int
+}
+
+class CityMap {
+  -intersections: Map<String, Intersection>
+  -roads: List<Road>
+  +addIntersection(Intersection)
+  +addRoad(Road)
+  +getRoute(String, String): List<Intersection>
+  +getRoad(String, String): Road
+}
+
+Intersection *-- "1" TrafficLight
+CityMap *-- "many" Intersection
+CityMap *-- "many" Road
+Road --> "2" Intersection
+Vehicle --> "many" Intersection : route
+Vehicle --> "0..1" Road : currentRoad
+
+interface TrafficEventPublisher {
+  +publishVehicleSpawned(Vehicle)
+  +publishVehicleArrived(Vehicle, long, long)
+  +publishLightPhaseChanged(String, LightPhase)
+  +publishPreemption(String, Direction)
+  +publishMessage(String)
+}
+
+interface TrafficObserver {
+  +onVehicleSpawned(Vehicle)
+  +onVehicleArrived(Vehicle, long, long)
+  +onLightPhaseChanged(String, LightPhase)
+  +onPreemption(String, Direction)
+  +onSimulationMessage(String)
+}
+
+class SimulationEngine implements TrafficEventPublisher {
+  -cityMap: CityMap
+  -statistics: SimulationStatistics
+  -observers: List<TrafficObserver>
+  -executor: ExecutorService
+  +start()
+  +stop()
+  +addObserver(TrafficObserver)
+}
+SimulationEngine o-- "many" TrafficObserver : notifies
+SimulationEngine *-- CityMap
+SimulationEngine *-- SimulationStatistics
+
+class VehicleSpawner implements Runnable
+class VehicleMover implements Runnable
+class AdaptiveSignalController implements Runnable
+SimulationEngine *-- VehicleSpawner
+SimulationEngine *-- VehicleMover
+SimulationEngine *-- AdaptiveSignalController
+
+class SimulationStatistics {
+  -vehiclesSpawned: AtomicLong
+  -vehiclesArrived: AtomicLong
+  -totalWaitTimeMillis: AtomicLong
+  +recordSpawn()
+  +recordArrival(long, long)
+  +getAverageWaitTimeMillis(): double
+}
+
+interface PersistenceService {
+  +loadCityMap(String): CityMap
+  +saveCityMap(CityMap, String)
+  +exportStatistics(SimulationStatistics, String)
+}
+note right of PersistenceService : owned by Ayesha - see TODO_Ayesha.md
+
+class EventLogger implements TrafficObserver {
+  -writer: BufferedWriter
+  +close()
+}
+
+class DefaultCityMapFactory {
+  +{static} createDefaultGrid(): CityMap
+}
+note right of DefaultCityMapFactory : temporary bootstrap,\nreplaced once PersistenceService\nhas a real CSV loader
+
+class MainFrame implements TrafficObserver {
+  -engine: SimulationEngine
+  -eventLog: JTextArea
+}
+note right of MainFrame : placeholder - owned by Nameer,\nsee TODO_Nameer.md
+MainFrame --> SimulationEngine : controls
+
+class InvalidRouteException
+class CityMapLoadException
+class SimulationStateException
+
+@enduml
