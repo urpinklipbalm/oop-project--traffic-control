@@ -16,10 +16,21 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class Intersection {
 
+    /**
+     * minimum gap between two vehicles crossing from the same direction.
+     * without this the mover would release one vehicle per direction on
+     * every 150ms tick, which is both unrealistic (real junctions clear
+     * roughly one car every couple of seconds) and hides congestion
+     * entirely - queues would never build up for the adaptive controller
+     * to respond to.
+     */
+    private static final long RELEASE_HEADWAY_MILLIS = 300;
+
     private final String id;
     private final Position position;
     private final TrafficLight trafficLight;
     private final Map<Direction, Deque<Vehicle>> queues = new EnumMap<>(Direction.class);
+    private final Map<Direction, Long> lastReleaseTime = new EnumMap<>(Direction.class);
     private final ReentrantLock queueLock = new ReentrantLock();
 
     public Intersection(String id, Position position) {
@@ -28,6 +39,7 @@ public class Intersection {
         this.trafficLight = new TrafficLight(id);
         for (Direction direction : Direction.values()) {
             queues.put(direction, new ArrayDeque<>());
+            lastReleaseTime.put(direction, 0L);
         }
     }
 
@@ -63,14 +75,25 @@ public class Intersection {
         }
     }
 
-    /** returns the next vehicle allowed to cross from this direction, or null if the light is red or the queue is empty. */
-    public Vehicle tryDequeue(Direction direction) {
+    /**
+     * returns the next vehicle allowed to cross from this direction, or null if
+     * the light is red, the queue is empty, or the previous vehicle from this
+     * direction left too recently (see RELEASE_HEADWAY_MILLIS).
+     */
+    public Vehicle tryDequeue(Direction direction, long nowMillis) {
         queueLock.lock();
         try {
             if (!trafficLight.isGreenFor(direction)) {
                 return null;
             }
-            return queues.get(direction).pollFirst();
+            if (nowMillis - lastReleaseTime.get(direction) < RELEASE_HEADWAY_MILLIS) {
+                return null;
+            }
+            Vehicle vehicle = queues.get(direction).pollFirst();
+            if (vehicle != null) {
+                lastReleaseTime.put(direction, nowMillis);
+            }
+            return vehicle;
         } finally {
             queueLock.unlock();
         }

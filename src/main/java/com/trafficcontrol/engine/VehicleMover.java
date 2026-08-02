@@ -27,12 +27,14 @@ public class VehicleMover implements Runnable {
     private final CityMap cityMap;
     private final TrafficEventPublisher publisher;
     private final SimulationStatistics statistics;
+    private final SimulationClock clock;
     private volatile boolean running = true;
 
-    public VehicleMover(CityMap cityMap, TrafficEventPublisher publisher, SimulationStatistics statistics) {
+    public VehicleMover(CityMap cityMap, TrafficEventPublisher publisher, SimulationStatistics statistics, SimulationClock clock) {
         this.cityMap = cityMap;
         this.publisher = publisher;
         this.statistics = statistics;
+        this.clock = clock;
     }
 
     @Override
@@ -52,11 +54,12 @@ public class VehicleMover implements Runnable {
     }
 
     private void advanceRoads(long now) {
+        double speedFactor = clock.getSpeedFactor();
         for (Road road : cityMap.getRoads()) {
             // vehiclesOnRoad is a CopyOnWriteArrayList, so it's safe to iterate here
             // while removeVehicle() mutates it below (and while the gui reads it for rendering).
             for (Vehicle vehicle : road.getVehiclesOnRoad()) {
-                if (vehicle.hasFinishedCurrentRoad(now)) {
+                if (vehicle.hasFinishedCurrentRoad(now, speedFactor)) {
                     arriveAtIntersection(road, vehicle, now);
                 }
             }
@@ -85,7 +88,7 @@ public class VehicleMover implements Runnable {
     private void releaseQueues(long now) {
         for (Intersection intersection : cityMap.getIntersections()) {
             for (Direction direction : Direction.values()) {
-                Vehicle vehicle = intersection.tryDequeue(direction);
+                Vehicle vehicle = intersection.tryDequeue(direction, now);
                 if (vehicle == null) {
                     continue;
                 }

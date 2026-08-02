@@ -107,12 +107,17 @@ public abstract class Vehicle {
         this.travelState = TravelState.ON_ROAD;
     }
 
-    /** whether enough simulated time has passed to have crossed the current road. */
-    public boolean hasFinishedCurrentRoad(long nowMillis) {
+    /**
+     * whether enough simulated time has passed to have crossed the current road.
+     * speedFactor comes from the engine's SimulationClock - taken as a plain
+     * double rather than the clock itself so the model package stays free of
+     * any dependency on the engine package.
+     */
+    public boolean hasFinishedCurrentRoad(long nowMillis, double speedFactor) {
         if (currentRoad == null) {
             return false;
         }
-        long travelTimeMillis = currentRoad.getTravelTimeMillis(getSpeedMetersPerSecond());
+        long travelTimeMillis = Math.round(currentRoad.getTravelTimeMillis(getSpeedMetersPerSecond()) / speedFactor);
         return nowMillis - roadEntryTimeMillis >= travelTimeMillis;
     }
 

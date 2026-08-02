@@ -30,6 +30,7 @@ public class SimulationEngine implements TrafficEventPublisher {
 
     private final CityMap cityMap;
     private final SimulationStatistics statistics = new SimulationStatistics();
+    private final SimulationClock clock = new SimulationClock();
     private final List<TrafficObserver> observers = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -52,6 +53,11 @@ public class SimulationEngine implements TrafficEventPublisher {
 
     public SimulationStatistics getStatistics() {
         return statistics;
+    }
+
+    /** exposed so the gui's speed slider can retune the simulation while it runs. */
+    public SimulationClock getClock() {
+        return clock;
     }
 
     public CityMap getCityMap() {
@@ -77,11 +83,12 @@ public class SimulationEngine implements TrafficEventPublisher {
         executor = Executors.newFixedThreadPool(intersectionCount + 3, new DaemonThreadFactory());
 
         for (Intersection intersection : cityMap.getIntersections()) {
+            intersection.getTrafficLight().setPublisher(this);
             submitNamed(intersection.getTrafficLight(), "traffic-light-" + intersection.getId());
         }
 
         spawner = new VehicleSpawner(cityMap, this, statistics);
-        mover = new VehicleMover(cityMap, this, statistics);
+        mover = new VehicleMover(cityMap, this, statistics, clock);
         adaptiveController = new AdaptiveSignalController(cityMap, this);
 
         submitNamed(spawner, "vehicle-spawner");

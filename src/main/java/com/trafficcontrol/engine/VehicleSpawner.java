@@ -21,8 +21,11 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class VehicleSpawner implements Runnable {
 
-    private static final long MIN_SPAWN_INTERVAL_MILLIS = 1200;
-    private static final long MAX_SPAWN_INTERVAL_MILLIS = 2800;
+    // tuned so the 9-intersection grid actually gets congested - much slower than
+    // this and queues never build up, so the adaptive signal timing has nothing
+    // to react to and the simulation looks static.
+    private static final long MIN_SPAWN_INTERVAL_MILLIS = 250;
+    private static final long MAX_SPAWN_INTERVAL_MILLIS = 700;
     private static final double EMERGENCY_VEHICLE_CHANCE = 0.06;
     private static final double BUS_CHANCE = 0.18;
     private static final double MOTORCYCLE_CHANCE = 0.20;
