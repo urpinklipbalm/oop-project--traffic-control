@@ -16,11 +16,13 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.WindowAdapter;
@@ -29,21 +31,20 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * PLACEHOLDER dashboard window: Start/Stop controls plus a live scrolling
- * event log. its job is to prove the whole app runs end-to-end (engine
- * running -> gui reacting) right now.
+ * the dashboard window: Start/Stop controls, the live animated city map,
+ * and a scrolling event log underneath it.
  *
- * Nameer's job (see docs/TODO_Nameer.md) is to replace the log panel
- * below with a real CityPanel (a painted map with animated vehicles and
- * light indicators), add a ControlPanel and StatisticsPanel, and apply
- * proper styling - this class is the wiring/starting point, not the
- * finished dashboard.
+ * still to come (see docs/TODO_Nameer.md): a ControlPanel for the speed
+ * slider and the save/load/export buttons, and a StatisticsPanel showing
+ * live throughput and wait times. both slot in around the map without
+ * changing anything here beyond the layout call.
  */
 public class MainFrame extends JFrame implements TrafficObserver {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final SimulationEngine engine;
+    private final CityPanel cityPanel;
     private final JTextArea eventLog = new JTextArea();
     private final JButton startButton = new JButton("Start Simulation");
     private final JButton stopButton = new JButton("Stop Simulation");
@@ -52,6 +53,10 @@ public class MainFrame extends JFrame implements TrafficObserver {
     public MainFrame(SimulationEngine engine) {
         super("Smart City Traffic Control - Simulation Dashboard");
         this.engine = engine;
+        this.cityPanel = new CityPanel(engine);
+
+        // the map subscribes itself so callers only ever have to register the frame
+        engine.addObserver(cityPanel);
 
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
@@ -63,10 +68,20 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
         setLayout(new BorderLayout());
         add(buildToolbar(), BorderLayout.NORTH);
-        add(buildLogPanel(), BorderLayout.CENTER);
+        add(buildSplitView(), BorderLayout.CENTER);
 
-        setSize(900, 600);
+        setSize(1100, 780);
+        setMinimumSize(new Dimension(760, 520));
         setLocationRelativeTo(null);
+    }
+
+    /** map on top, event log below, draggable divider between them. */
+    private JComponent buildSplitView() {
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, cityPanel, buildLogPanel());
+        split.setResizeWeight(1.0); // extra height from resizing goes to the map, not the log
+        split.setDividerLocation(540);
+        split.setBorder(BorderFactory.createEmptyBorder());
+        return split;
     }
 
     private JComponent buildToolbar() {
@@ -93,6 +108,7 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
         JScrollPane scrollPane = new JScrollPane(eventLog);
         scrollPane.setBorder(BorderFactory.createTitledBorder("Live Simulation Events"));
+        scrollPane.setPreferredSize(new Dimension(0, 180));
         return scrollPane;
     }
 
@@ -141,8 +157,8 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
     @Override
     public void onLightPhaseChanged(String intersectionId, LightPhase phase) {
-        // too noisy for a plain text log across 9 intersections cycling every few seconds - the
-        // real CityPanel (Nameer's work) is where phase changes should actually be visualized.
+        // deliberately not logged - 9 intersections cycling every few seconds would drown
+        // out everything else. the map already shows every phase change as it happens.
     }
 
     @Override
