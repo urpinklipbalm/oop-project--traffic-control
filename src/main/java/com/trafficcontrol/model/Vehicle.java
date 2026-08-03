@@ -11,10 +11,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * drawn - all the route-following/queueing logic lives here so it's not
  * duplicated per vehicle type.
  *
- * a vehicle only ever has one owner thread touching its mutable fields at
- * a time (VehicleMover moves it, the Intersection lock guards the moment
- * it's handed between queues), so these fields don't need their own
- * synchronization - see docs/ARCHITECTURE.md for the ownership handoff.
+ * a vehicle is only ever moved by one thread (VehicleMover; the
+ * Intersection lock guards the moment it's handed between queues), so
+ * most of these fields need no synchronization of their own - see
+ * docs/ARCHITECTURE.md for the ownership handoff.
+ *
+ * the exception is where it currently is on the map, which the gui reads
+ * from the swing event dispatch thread on every repaint while the mover
+ * is writing it. see the RoadPlacement note below.
  */
 public abstract class Vehicle {
 
@@ -26,14 +30,28 @@ public abstract class Vehicle {
         ARRIVED
     }
 
+    /**
+     * which road the vehicle is on and when it joined, as one immutable
+     * value. these two always have to agree: pairing a new road with the
+     * previous road's entry time would place the vehicle somewhere it has
+     * never been.
+     *
+     * keeping them in a single volatile reference means a reader either
+     * sees the whole old placement or the whole new one, never a mix -
+     * which two separate fields could not guarantee, since a plain long
+     * read isn't even atomic (JLS 17.7) let alone ordered against the
+     * reference write next to it.
+     */
+    private record RoadPlacement(Road road, long entryTimeMillis) {
+    }
+
     private final String id;
     private final List<Intersection> route; // full path from origin to destination, inclusive
     private final long spawnTimeMillis;
 
     private int routeIndex; // index into route of the intersection we're currently at
-    private TravelState travelState;
-    private Road currentRoad;
-    private long roadEntryTimeMillis;
+    private volatile TravelState travelState; // read by the gui, written by the mover
+    private volatile RoadPlacement placement;
     private long waitStartTimeMillis;
     private long cumulativeWaitMillis; // summed across every intersection this trip, for stats
 
@@ -98,12 +116,12 @@ public abstract class Vehicle {
     }
 
     public Road getCurrentRoad() {
-        return currentRoad;
+        RoadPlacement current = placement;
+        return current == null ? null : current.road();
     }
 
     public void enterRoad(Road road, long nowMillis) {
-        this.currentRoad = road;
-        this.roadEntryTimeMillis = nowMillis;
+        this.placement = new RoadPlacement(road, nowMillis);
         this.travelState = TravelState.ON_ROAD;
     }
 
@@ -123,14 +141,17 @@ public abstract class Vehicle {
      * between the two intersections when drawing it.
      */
     public double getProgressAlongRoad(long nowMillis, double speedFactor) {
-        if (currentRoad == null) {
+        // read the placement once - re-reading the field could pick up a different
+        // road partway through the calculation and mix the two up.
+        RoadPlacement current = placement;
+        if (current == null) {
             return 0.0;
         }
-        double travelTimeMillis = currentRoad.getTravelTimeMillis(getSpeedMetersPerSecond()) / speedFactor;
+        double travelTimeMillis = current.road().getTravelTimeMillis(getSpeedMetersPerSecond()) / speedFactor;
         if (travelTimeMillis <= 0) {
             return 1.0;
         }
-        return Math.min(1.0, (nowMillis - roadEntryTimeMillis) / travelTimeMillis);
+        return Math.min(1.0, (nowMillis - current.entryTimeMillis()) / travelTimeMillis);
     }
 
     public void startWaiting(long nowMillis) {

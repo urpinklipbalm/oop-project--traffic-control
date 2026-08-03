@@ -20,4 +20,13 @@ public enum LightPhase {
     public boolean isGreenFor(Direction direction) {
         return direction.isNorthSouthAxis() ? this == NS_GREEN : this == EW_GREEN;
     }
+
+    /**
+     * whether this direction is on amber - about to lose right of way. vehicles
+     * don't act on this (the mover only ever asks isGreenFor), it exists so the
+     * gui can draw the amber stage instead of jumping straight green to red.
+     */
+    public boolean isYellowFor(Direction direction) {
+        return direction.isNorthSouthAxis() ? this == NS_YELLOW : this == EW_YELLOW;
+    }
 }
