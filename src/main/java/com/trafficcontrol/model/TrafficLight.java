@@ -2,6 +2,7 @@ package com.trafficcontrol.model;
 
 import com.trafficcontrol.observer.TrafficEventPublisher;
 
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -43,8 +44,8 @@ public class TrafficLight implements Runnable {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition phaseCondition = lock.newCondition();
 
-    private int cycleIndex = 0;
-    private volatile LightPhase phase = CYCLE[0];
+    private int cycleIndex;
+    private volatile LightPhase phase;
     private volatile long nsGreenMillis = DEFAULT_GREEN_MILLIS;
     private volatile long ewGreenMillis = DEFAULT_GREEN_MILLIS;
 
@@ -58,6 +59,12 @@ public class TrafficLight implements Runnable {
 
     public TrafficLight(String intersectionId) {
         this.intersectionId = intersectionId;
+        // start each junction at a random point in the cycle. left in lockstep every
+        // light in the city would turn red at the same instant, which no real network
+        // does - staggering them keeps traffic flowing somewhere at all times and
+        // gives the adaptive controller genuinely uneven queues to work with.
+        this.cycleIndex = ThreadLocalRandom.current().nextInt(CYCLE.length);
+        this.phase = CYCLE[cycleIndex];
     }
 
     /** wired in by SimulationEngine once it exists - see the class-level note on why this isn't a constructor arg. */
