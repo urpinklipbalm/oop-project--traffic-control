@@ -196,12 +196,21 @@ classDiagram
     DefaultCityMapFactory ..> CityMap : builds
 
     class MainFrame {
-        <<placeholder>>
         -SimulationEngine engine
+        -CityPanel cityPanel
         -JTextArea eventLog
     }
     MainFrame ..|> TrafficObserver : implements
     MainFrame --> SimulationEngine : controls
+
+    class CityPanel {
+        -SimulationEngine engine
+        -Map~Intersection, Map~Direction, Road~~ incomingRoads
+        -Map~String, Long~ lastPreemption
+        +paintComponent(Graphics)
+    }
+    CityPanel ..|> TrafficObserver : implements
+    MainFrame "1" *-- "1" CityPanel
 
     class InvalidRouteException
     class CityMapLoadException

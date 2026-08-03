@@ -165,10 +165,19 @@ note right of DefaultCityMapFactory : temporary bootstrap,\nreplaced once Persis
 
 class MainFrame implements TrafficObserver {
   -engine: SimulationEngine
+  -cityPanel: CityPanel
   -eventLog: JTextArea
 }
-note right of MainFrame : placeholder - owned by Nameer,\nsee TODO_Nameer.md
 MainFrame --> SimulationEngine : controls
+
+class CityPanel implements TrafficObserver {
+  -engine: SimulationEngine
+  -incomingRoads: Map<Intersection, Map<Direction, Road>>
+  -lastPreemption: Map<String, Long>
+  +paintComponent(Graphics)
+}
+note right of CityPanel : the animated map - repaints on a\nswing Timer, reads simulation state\nonly, never writes back
+MainFrame *-- CityPanel
 
 class InvalidRouteException
 class CityMapLoadException
