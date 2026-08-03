@@ -91,10 +91,27 @@ where no multi-field invariant needs protecting. `SimulationEngine.start()`/
 race-safe, and `stop()` does a graceful `shutdown()` + bounded
 `awaitTermination()` so no worker thread is ever abandoned.
 
+Adding the animated map introduced a tenth thread reading this state -
+Swing's event dispatch thread, repainting ~30 times a second. It is
+strictly read-only, and every value it touches was made safe to read
+concurrently: copy-on-write vehicle lists, a volatile light phase, queue
+lengths taken under the intersection lock, and a vehicle's position
+published as a single immutable snapshot.
+
+That last one was a genuine race the map exposed. The current road and
+the time the vehicle joined it were two separate plain fields, so a
+reader could pick up the *new* road paired with the *old* entry time and
+draw a vehicle somewhere it had never been - and a non-volatile `long`
+read is not even guaranteed atomic (JLS 17.7). Pairing them into one
+immutable `RoadPlacement` behind a single `volatile` reference means a
+reader always sees a consistent pair.
+
 **Challenges faced:** *[fill in anything that was genuinely tricky - e.g.
 getting the preemption wake-up right without missing a signal, or tuning
 tick intervals so the simulation is visibly active without spawning
-vehicles faster than they can be processed.]*
+vehicles faster than they can be processed. The race above is worth
+writing up properly - it is a good example of a bug that only appeared
+once a second component started reading shared state.]*
 
 ## 5. File Handling
 

@@ -29,7 +29,7 @@ why it's built this way.
 | OOP Principles | done - abstract `Vehicle` + 4 subclasses, interfaces (`TrafficObserver`, `TrafficEventPublisher`, `PersistenceService`), encapsulated shared state throughout `model/` |
 | Concurrency & Synchronization | done - see `engine/` and `model/TrafficLight.java` / `model/Intersection.java` |
 | Logic & Efficiency | done - BFS routing (`CityMap.getRoute`), load-adaptive signal timing (`AdaptiveSignalController`) |
-| User Interface | placeholder only - functional Start/Stop + live log, not the polished dashboard. **Nameer:** [`docs/TODO_Nameer.md`](docs/TODO_Nameer.md) |
+| User Interface | partial - live animated city map (`gui/CityPanel`) with moving vehicles, signal states, queues and emergency-preemption flashes, plus Start/Stop and an event log. Control and statistics panels still to come. **Nameer:** [`docs/TODO_Nameer.md`](docs/TODO_Nameer.md) |
 | File Handling | partial - `EventLogger` (event log to disk) is done; CSV map loading, snapshots, stats export are not. **Ayesha:** [`docs/TODO_Ayesha.md`](docs/TODO_Ayesha.md) |
 | IDE & Version Control | ongoing - small scoped commits, see `git log` |
 | Ethics & Teamwork | ongoing - [`docs/TASK_DIVISION.md`](docs/TASK_DIVISION.md), fill in [`docs/ProjectReport.md`](docs/ProjectReport.md) as you go, don't leave it to the last night |
@@ -60,8 +60,8 @@ breakdown. Short version:
   interfaces everything else plugs into
 - `persistence/` - file handling (`EventLogger` is done; the real
   CSV-backed `PersistenceService` implementation is Ayesha's part)
-- `gui/` - the Swing UI (`MainFrame` is currently a working placeholder;
-  the real dashboard is Nameer's part)
+- `gui/` - the Swing UI: `MainFrame` (window + controls) and `CityPanel`
+  (the animated map). The control and statistics panels are Nameer's part
 - `exceptions/` - custom checked/unchecked exceptions
 - `docs/` - architecture notes, UML, task lists, the project report
 

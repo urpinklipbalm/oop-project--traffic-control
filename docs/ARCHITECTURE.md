@@ -21,7 +21,9 @@ com.trafficcontrol
 ├── persistence/           file handling: EventLogger (done),
 │                          PersistenceService + DefaultCityMapFactory
 │                          (Ayesha's real implementation goes here)
-├── gui/                   MainFrame (Nameer's dashboard goes here)
+├── gui/                   MainFrame (window/controls) and CityPanel
+│                          (the animated map); ControlPanel and
+│                          StatisticsPanel are Nameer's
 └── exceptions/            InvalidRouteException, CityMapLoadException,
                            SimulationStateException
 ```
@@ -91,6 +93,28 @@ swapping it for Ayesha's real `CsvCityMapLoader` is a one-line change in
    *mover* decides it based on the vehicle's runtime type (a concrete,
    deliberate use of polymorphism rather than an `instanceof` chain
    scattered through `Intersection`).
+
+## The gui as a tenth reader thread
+
+`CityPanel` repaints ~30 times a second on the Swing event dispatch
+thread, reading simulation state while nine light threads and the mover
+are writing it. It is deliberately read-only - it never calls back into
+the engine - so it cannot disturb the simulation whenever a frame lands.
+Every value it reads was made safe to read concurrently:
+
+- a road's vehicle list is copy-on-write, so it can be iterated mid-write
+- a light's phase is `volatile`
+- a queue length is taken under that intersection's own lock
+- a vehicle's position is published as a single immutable
+  `RoadPlacement` snapshot behind one `volatile` reference
+
+That last one was a real bug found while building the map. Previously
+the current road and the time it was joined were two separate plain
+fields, so a reader could pick up the new road paired with the old
+entry time and draw the vehicle somewhere it had never been - and a
+non-volatile `long` read isn't even atomic (JLS 17.7). Pairing them in
+one immutable value means a reader sees either the whole old placement
+or the whole new one.
 
 ## Threading model at a glance
 

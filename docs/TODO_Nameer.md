@@ -1,14 +1,16 @@
 # Nameer's TODOs - GUI
 
-You own the **User Interface** rubric category. The app already runs
-end-to-end with a working-but-plain placeholder window
-(`gui/MainFrame.java`: Start/Stop buttons + a scrolling text log, styled
-with FlatLaf). Your job is to turn that into the real dashboard - you're
-extending a working starting point, not building from a blank window.
+You own the **User Interface** rubric category. The window already has
+Start/Stop controls, the animated city map (`gui/CityPanel.java`), and a
+live event log, all styled with FlatLaf. The two panels that surround
+the map are yours to build, plus the styling pass over the whole thing -
+you're extending a working app, not starting from a blank window.
 
 Read `docs/ARCHITECTURE.md` first, specifically how `TrafficObserver`
 works - it's how every panel you build gets live data without touching
-any engine code.
+any engine code. `CityPanel` is a worked example of the pattern: it
+subscribes for preemption events, reads everything else straight off the
+model on each repaint, and never writes anything back.
 
 **Important:** everything you implement as a `TrafficObserver` gets
 called from background simulation threads, never the Swing EDT. Every
@@ -19,30 +21,23 @@ everywhere. Skipping this doesn't crash immediately, it causes
 intermittent Swing corruption/freezes that are miserable to debug later,
 so get it right from the start.
 
-## 1. `CityPanel` - the actual city visualization
+## 1. `CityPanel` - DONE, but worth reading before you start
 
-New file: `src/main/java/com/trafficcontrol/gui/CityPanel.java`, a
-`JPanel` with a custom `paintComponent(Graphics g)`.
+`gui/CityPanel.java` already draws the live map: vehicles animating
+along their roads, coloured stop lines per approach, queues tailing back
+from red lights, a fading ring on any junction an emergency vehicle just
+preempted, and a legend. It repaints on a ~30fps `javax.swing.Timer`.
 
-- Draw each `Intersection` (from `engine.getCityMap().getIntersections()`)
-  as a small square/circle at its `Position` (scale meters to pixels -
-  the default grid is 0-360 on each axis, so multiplying by ~1.5-2x and
-  adding some margin gives a reasonably sized window).
-- Draw each `Road` as a line between its `from`/`to` intersections.
-- Draw a colored dot per vehicle currently on a road
-  (`Road.getVehiclesOnRoad()`), using `Vehicle.getColor()` - this is
-  where the polymorphic `getColor()`/`getTypeName()` on each vehicle
-  subtype actually gets used visually. To place the dot, call
-  `vehicle.getProgressAlongRoad(System.currentTimeMillis(), engine.getClock().getSpeedFactor())`
-  - it returns 0.0 at the road's start and 1.0 at its end, so you can
-  lerp between the two intersections' positions.
-- Color each intersection's light indicator based on
-  `TrafficLight.getPhase()` (or subscribe to `onLightPhaseChanged` and
-  cache the latest phase per intersection id - don't call into the
-  engine's internals from the paint thread more than necessary).
-- Call `repaint()` on a `javax.swing.Timer` (e.g. every 100-150ms) rather
-  than repainting on every single observer callback - much smoother and
-  avoids flooding the EDT.
+You don't need to rebuild it, but do read it - it's the template for the
+panels below, and there are two things in it worth copying:
+
+- It repaints on a timer rather than on every observer callback, which
+  keeps the animation smooth instead of flooding the EDT.
+- It scales the layout from the actual intersection positions, so it
+  still lays out correctly when Ayesha's loader supplies a different map.
+
+If you want to extend it, obvious candidates: hovering a vehicle to show
+its route, or shading each road by `Road.getCongestionRatio()`.
 
 ## 2. `ControlPanel`
 
@@ -74,13 +69,13 @@ New file: `src/main/java/com/trafficcontrol/gui/StatisticsPanel.java`
 - A simple per-intersection congestion readout (`Intersection.getTotalQueueLength()`)
   is a nice touch - a small bar or colored label per intersection.
 
-## 4. Replace `MainFrame`'s current layout
+## 4. Fit your panels into `MainFrame`
 
-Swap the current `JScrollPane` log for a composed layout of
-`CityPanel` (center), `ControlPanel` (north or west), `StatisticsPanel`
-(east or south). You can keep the event log too (e.g. in a collapsible
-panel or a separate tab) - it's genuinely useful for debugging - but it
-shouldn't be the main view anymore.
+`MainFrame` currently splits vertically: the map on top, the event log
+below. Add `ControlPanel` and `StatisticsPanel` around that - west/east
+of the map, or a toolbar strip and a side column, whichever you think
+reads better. Keep the event log; it's genuinely useful when
+demonstrating, just don't let it take space from the map.
 
 ## 5. Styling
 
@@ -89,10 +84,14 @@ get a clean modern look for free from any standard Swing component. A
 few things worth doing on top of that:
 
 - Consistent spacing/padding (`BorderFactory.createEmptyBorder(...)`).
-- A small, consistent color palette for vehicle types (already defined
-  per-class in `getColor()` - reuse those exact colors in any legend/key
-  you add, don't invent new ones).
+- Reuse the existing palette. Vehicle colours are defined per-class in
+  `getColor()` and `CityPanel` already draws a legend from them - don't
+  invent new ones for your panels.
 - Test resizing the window - nothing should clip or overlap.
+- Optional but a strong finish: a light/dark theme toggle. FlatLaf makes
+  this a one-liner (`FlatDarkLaf.setup()`), but `CityPanel`'s colours are
+  currently constants tuned for the light theme, so you'd need to pull
+  them out into a small theme object for the map to follow along.
 
 ## 6. Report section
 
