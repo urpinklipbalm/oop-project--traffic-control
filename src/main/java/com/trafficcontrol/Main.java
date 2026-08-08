@@ -2,9 +2,10 @@ package com.trafficcontrol;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.trafficcontrol.engine.SimulationEngine;
+import com.trafficcontrol.exceptions.CityMapLoadException;
 import com.trafficcontrol.gui.MainFrame;
 import com.trafficcontrol.model.CityMap;
-import com.trafficcontrol.persistence.DefaultCityMapFactory;
+import com.trafficcontrol.persistence.CsvCityMapLoader;
 import com.trafficcontrol.persistence.EventLogger;
 
 import javax.swing.SwingUtilities;
@@ -18,7 +19,7 @@ import java.nio.file.Path;
  *
  * see docs/ARCHITECTURE.md for how the pieces fit together, and
  * docs/TODO_Ayesha.md / docs/TODO_Nameer.md for what still needs to
- * replace the two TODO-marked lines below.
+ * replace the TODO-marked line below.
  */
 public final class Main {
 
@@ -28,9 +29,13 @@ public final class Main {
     public static void main(String[] args) {
         FlatLightLaf.setup();
 
-        // TODO(Ayesha): once persistence.PersistenceService has a real CSV loader, load
-        // src/main/resources/maps/default-city.csv through it instead of this hardcoded grid.
-        CityMap cityMap = DefaultCityMapFactory.createDefaultGrid();
+        CityMap cityMap;
+        try {
+            cityMap = new CsvCityMapLoader().loadCityMap("src/main/resources/maps/default-city.csv");
+        } catch (CityMapLoadException e) {
+            System.err.println("could not load the city map, aborting startup: " + e.getMessage());
+            return;
+        }
         SimulationEngine engine = new SimulationEngine(cityMap);
 
         attachEventLogger(engine);

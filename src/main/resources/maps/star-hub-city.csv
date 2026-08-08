@@ -1,0 +1,30 @@
+# sample city map - irregular layout (not a grid), used to demonstrate
+# CsvCityMapLoader handles more than one shape.
+#
+# 5 intersections in a rough star/hub pattern: I-HUB in the middle,
+# 4 spokes around it, plus one extra cross-link between two spokes so
+# it's not just a simple star either.
+#
+# same format as default-city.csv - see that file's header comments for
+# full field documentation.
+
+[INTERSECTIONS]
+id,x,y
+I-HUB,200,200
+I-N,200,40
+I-E,380,200
+I-S,200,360
+I-W,20,200
+
+[ROADS]
+id,fromId,toId,lengthMeters,lanes,approachDirection
+I-HUB-I-N,I-HUB,I-N,160,2,SOUTH
+I-N-I-HUB,I-N,I-HUB,160,2,NORTH
+I-HUB-I-E,I-HUB,I-E,180,2,WEST
+I-E-I-HUB,I-E,I-HUB,180,2,EAST
+I-HUB-I-S,I-HUB,I-S,160,2,NORTH
+I-S-I-HUB,I-S,I-HUB,160,2,SOUTH
+I-HUB-I-W,I-HUB,I-W,180,1,EAST
+I-W-I-HUB,I-W,I-HUB,180,1,WEST
+I-N-I-E,I-N,I-E,240,1,WEST
+I-E-I-N,I-E,I-N,240,1,EAST

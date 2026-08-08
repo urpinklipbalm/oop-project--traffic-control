@@ -117,11 +117,110 @@ once a second component started reading shared state.]*
 
 *(Owner: Ayesha Kamran - see [`docs/TODO_Ayesha.md`](TODO_Ayesha.md).)*
 
-*[Fill in: what `CsvCityMapLoader` does, the file format you settled on
-and why, how you handle a missing/corrupted file, what the snapshot
-save/resume format is (and why you picked it over alternatives), what
-the statistics export looks like. Screenshots of a sample file are
-welcome here.]*
+### What I built
+
+I implemented `persistence.PersistenceService` as `CsvCityMapLoader`, which
+handles three things:
+
+1. **Loading city maps from CSV** (`loadCityMap`) - parses the two-section
+   format (`[INTERSECTIONS]` then `[ROADS]`) documented in
+   `default-city.csv`'s header comments, building a `CityMap` the same way
+   `DefaultCityMapFactory.createDefaultGrid()` does, but from file rows
+   instead of a hardcoded loop.
+2. **Saving city maps back to CSV** (`saveCityMap`) - the inverse operation,
+   writing a `CityMap`'s intersections and roads back out in the same
+   format.
+3. **Exporting simulation statistics** (`exportStatistics`) - writes a
+   `metric,value` CSV report of a completed run (vehicles spawned/arrived/
+   in-transit, average wait time, average travel time) pulled from
+   `SimulationStatistics`'s getters.
+4. **Snapshot save/resume** (`saveSnapshot` / `loadSnapshot`, stretch goal)
+   - saves the city map plus the statistics totals to a single file in one
+   call, and loads both back out as a `SimulationSnapshot`. These two
+   methods aren't part of `PersistenceService` - the interface only
+   declares the three methods above, so snapshotting is exposed as extra
+   public methods on `CsvCityMapLoader` itself.
+
+I also added `star-hub-city.csv`, a second sample map with an irregular
+hub-and-spoke layout (5 intersections, not a grid, mixed lane counts), to
+prove the loader isn't just special-cased for the one 3x3 shape it was
+developed against.
+
+### Design choices
+
+**CSV over Java serialization for the map format.** The map file needs to
+be human-readable and hand-editable (the format's own header comments are
+written for a person adding a new map by hand), and it needs to stay
+readable across code changes to the `CityMap`/`Intersection`/`Road`
+classes. Java serialization ties the file format to the exact class
+bytecode that wrote it - any refactor of those classes risks breaking old
+save files silently. Plain CSV has neither problem, at the cost of writing
+my own parser instead of getting one for free.
+
+**Metric/value rows over one wide row for statistics export.** I considered
+a single header row (`spawned,arrived,avg-wait,...`) with one data row
+underneath, but went with a long `metric,value` format instead - it stays
+readable by eye without lining up columns, and adding a new statistic
+later (if `SimulationStatistics` grows more fields) is a one-line change
+instead of reshuffling every existing report a fixed column order would
+require.
+
+**Fail-fast validation.** `loadCityMap` never returns a partially-built
+`CityMap`. Every row is validated as it's parsed - malformed column count,
+non-numeric coordinates, an unrecognized `approachDirection`, or a road
+referencing an intersection ID that hasn't been defined - and any of these
+throws `CityMapLoadException` immediately, with the exact line number and
+offending text, rather than silently skipping the bad row or returning an
+incomplete map that would fail confusingly somewhere downstream in the
+engine instead.
+
+**Snapshot format reuses the map format rather than inventing a new one.**
+A snapshot file is just a city map file with a third `[STATISTICS]`
+section appended - same `[INTERSECTIONS]`/`[ROADS]` sections, same parser,
+same writer. `loadCityMap`/`saveCityMap`/`loadSnapshot`/`saveSnapshot` all
+share one internal parsing pass and one internal writing method rather
+than each having their own copy of the row-reading/row-writing logic, so
+a fix to how a road row is parsed automatically applies everywhere it's
+used.
+
+**Scope: totals, not a full mid-simulation resume.** The TODO's minimum
+bar is the city map plus `SimulationStatistics`'s current totals, with
+full vehicle-position resume explicitly called out as a nice-to-have, not
+required. I kept to that minimum: a snapshot captures the map layout and
+the spawned/arrived/wait/travel totals, not individual vehicles' current
+positions or in-progress traffic light phases. Restoring those would mean
+extending `SimulationEngine` itself to accept and resume mid-flight
+vehicle/light state, which is a bigger change than the persistence layer
+alone should own. "Resuming" a snapshot in practice means starting a new
+simulation on the saved map with the saved totals as a starting point,
+not literally continuing the exact same moment.
+
+### How a corrupted or missing file is handled
+
+- **Missing file**: caught at the `Files.readAllLines` call and rethrown
+  as `CityMapLoadException("City map file not found: " + filePath)`.
+- **Malformed row** (wrong column count, non-numeric x/y/length/lanes,
+  unknown direction): caught per-field during parsing, with the specific
+  line number and field name included in the exception message.
+- **Dangling reference** (a road's `fromId`/`toId` naming an intersection
+  that was never defined): caught when building the `Road`, since roads
+  are only constructed after looking up both endpoints in a map of
+  already-parsed intersections.
+- In `Main.java`, a `CityMapLoadException` during startup is caught, logged
+  to stderr, and the application exits cleanly via `return` rather than
+  launching a GUI over a broken or absent map.
+
+### Testing
+
+Verified via `SmokeTest.java` (temporarily, then removed): loading
+`star-hub-city.csv` produced the correct 5 intersections with no
+exceptions; running `exportStatistics` after a full simulation produced a
+CSV whose values matched the console's final statistics output exactly
+(shown with different decimal precision - `%.2f` in the export vs `%.0f`
+in `SimulationStatistics.toString()`, same underlying numbers); and
+`saveSnapshot` followed immediately by `loadSnapshot` on the same run
+round-tripped both the full 9-intersection/24-road map and the statistics
+totals without loss.
 
 ## 6. User Interface
 
