@@ -177,6 +177,23 @@ public class TrafficLight implements Runnable {
         return phase;
     }
 
+    /**
+     * re-arms this light before the engine submits it for a new run. stop()
+     * wakes and terminates the previous worker, so a later Start must restore
+     * this flag or the resubmitted Runnable exits immediately with a frozen
+     * phase.
+     */
+    public void prepareForStart() {
+        lock.lock();
+        try {
+            running = true;
+            preemptRequested = false;
+            preemptDirection = null;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     /** called by AdaptiveSignalController to lengthen/shorten the next green phases based on queue load. */
     public void setNsGreenDurationMillis(long millis) {
         this.nsGreenMillis = clamp(millis);

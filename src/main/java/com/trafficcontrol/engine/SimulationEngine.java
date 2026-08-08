@@ -106,6 +106,7 @@ public class SimulationEngine implements TrafficEventPublisher {
 
         for (Intersection intersection : cityMap.getIntersections()) {
             intersection.getTrafficLight().setPublisher(this);
+            intersection.getTrafficLight().prepareForStart();
             submitNamed(intersection.getTrafficLight(), "traffic-light-" + intersection.getId());
         }
 
@@ -116,8 +117,6 @@ public class SimulationEngine implements TrafficEventPublisher {
         submitNamed(spawner, "vehicle-spawner");
         submitNamed(mover, "vehicle-mover");
         submitNamed(adaptiveController, "adaptive-signal-controller");
-
-        publishMessage("simulation started with " + intersectionCount + " intersections");
     }
 
     /** signals every worker to stop, then waits (briefly) for a clean shutdown before forcing it. */
