@@ -10,6 +10,10 @@ public class Car extends Vehicle {
         super(route);
     }
 
+    public Car(List<Intersection> route, String customLabel) {
+        super(route, customLabel);
+    }
+
     @Override
     public int getPriority() {
         return 1;

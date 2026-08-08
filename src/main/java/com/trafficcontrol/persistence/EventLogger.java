@@ -41,13 +41,15 @@ public class EventLogger implements TrafficObserver, AutoCloseable {
 
     @Override
     public void onVehicleSpawned(Vehicle vehicle) {
-        writeLine(vehicle.getTypeName() + " " + vehicle.getId() + " spawned: "
+        String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
+        writeLine(vehicle.getTypeName() + " " + vehicle.getId() + label + " spawned: "
                 + vehicle.getOriginIntersection().getId() + " -> " + vehicle.getDestinationIntersection().getId());
     }
 
     @Override
     public void onVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
-        writeLine(vehicle.getTypeName() + " " + vehicle.getId() + " arrived: waited "
+        String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
+        writeLine(vehicle.getTypeName() + " " + vehicle.getId() + label + " arrived: waited "
                 + waitTimeMillis + "ms of a " + travelTimeMillis + "ms trip");
     }
 

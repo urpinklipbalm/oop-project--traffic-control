@@ -64,24 +64,65 @@ public class VehicleSpawner implements Runnable {
 
     private void spawnOne(List<String> ids) throws InvalidRouteException {
         ThreadLocalRandom random = ThreadLocalRandom.current();
+        List<Intersection> route = chooseRandomRoute(ids, random);
+        spawnVehicle(createRandomVehicle(route, random), route);
+    }
+
+    /**
+     * immediately creates one car on a random valid route. this is called by
+     * the gui's manual spawn control and is safe to run alongside the normal
+     * spawner thread: roads use a copy-on-write vehicle list and statistics are
+     * atomic.
+     */
+    public Vehicle spawnCarNow() throws InvalidRouteException {
+        List<String> ids = cityMap.getIntersectionIds();
+        if (ids.size() < 2) {
+            throw new InvalidRouteException("city map needs at least 2 intersections");
+        }
+
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        List<Intersection> route = chooseRandomRoute(ids, random);
+        return spawnVehicle(new Car(route), route);
+    }
+
+    /** creates a labeled car on the exact route selected in the gui. */
+    public Vehicle spawnCarNow(String originId, String destinationId, String customLabel)
+            throws InvalidRouteException {
+        if (customLabel == null || customLabel.isBlank()) {
+            throw new IllegalArgumentException("enter a label for the car");
+        }
+        if (customLabel.trim().length() > 24) {
+            throw new IllegalArgumentException("car labels can be at most 24 characters");
+        }
+
+        List<Intersection> route = cityMap.getRoute(originId, destinationId);
+        return spawnVehicle(new Car(route, customLabel), route);
+    }
+
+    private List<Intersection> chooseRandomRoute(List<String> ids, ThreadLocalRandom random)
+            throws InvalidRouteException {
         String originId = ids.get(random.nextInt(ids.size()));
         String destinationId;
         do {
             destinationId = ids.get(random.nextInt(ids.size()));
         } while (destinationId.equals(originId));
 
-        List<Intersection> route = cityMap.getRoute(originId, destinationId);
+        return cityMap.getRoute(originId, destinationId);
+    }
+
+    private Vehicle spawnVehicle(Vehicle vehicle, List<Intersection> route) throws InvalidRouteException {
         Road firstRoad = cityMap.getRoad(route.get(0).getId(), route.get(1).getId());
         if (firstRoad == null) {
-            return; // shouldn't happen given getRoute succeeded, but stay defensive about it
+            throw new InvalidRouteException("route has no road from "
+                    + route.get(0).getId() + " to " + route.get(1).getId());
         }
 
-        Vehicle vehicle = createRandomVehicle(route, random);
         vehicle.enterRoad(firstRoad, System.currentTimeMillis());
         firstRoad.addVehicle(vehicle);
 
         statistics.recordSpawn();
         publisher.publishVehicleSpawned(vehicle);
+        return vehicle;
     }
 
     private Vehicle createRandomVehicle(List<Intersection> route, ThreadLocalRandom random) {

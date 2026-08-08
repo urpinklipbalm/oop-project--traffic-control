@@ -1,5 +1,6 @@
 package com.trafficcontrol.engine;
 
+import com.trafficcontrol.exceptions.InvalidRouteException;
 import com.trafficcontrol.exceptions.SimulationStateException;
 import com.trafficcontrol.model.CityMap;
 import com.trafficcontrol.model.Direction;
@@ -66,6 +67,23 @@ public class SimulationEngine implements TrafficEventPublisher {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    /** immediately spawns a car with a random route while the simulation is running. */
+    public Vehicle spawnCar() throws InvalidRouteException {
+        if (!running.get() || spawner == null) {
+            throw new SimulationStateException("start the simulation before spawning a car");
+        }
+        return spawner.spawnCarNow();
+    }
+
+    /** immediately spawns a labeled car between two user-selected intersections. */
+    public Vehicle spawnCar(String originId, String destinationId, String customLabel)
+            throws InvalidRouteException {
+        if (!running.get() || spawner == null) {
+            throw new SimulationStateException("start the simulation before spawning a car");
+        }
+        return spawner.spawnCarNow(originId, destinationId, customLabel);
     }
 
     /**

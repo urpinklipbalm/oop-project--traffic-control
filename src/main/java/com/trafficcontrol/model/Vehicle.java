@@ -46,6 +46,7 @@ public abstract class Vehicle {
     }
 
     private final String id;
+    private final String customLabel;
     private final List<Intersection> route; // full path from origin to destination, inclusive
     private final long spawnTimeMillis;
 
@@ -56,10 +57,15 @@ public abstract class Vehicle {
     private long cumulativeWaitMillis; // summed across every intersection this trip, for stats
 
     protected Vehicle(List<Intersection> route) {
+        this(route, null);
+    }
+
+    protected Vehicle(List<Intersection> route, String customLabel) {
         if (route == null || route.size() < 2) {
             throw new IllegalArgumentException("a vehicle needs a route with at least an origin and a destination");
         }
         this.id = getTypeName() + "-" + NEXT_ID.getAndIncrement();
+        this.customLabel = customLabel == null || customLabel.isBlank() ? null : customLabel.trim();
         this.route = route;
         this.spawnTimeMillis = System.currentTimeMillis();
         this.routeIndex = 0;
@@ -82,6 +88,11 @@ public abstract class Vehicle {
 
     public String getId() {
         return id;
+    }
+
+    /** optional user-supplied name used to track a manually spawned vehicle in the gui. */
+    public String getCustomLabel() {
+        return customLabel;
     }
 
     public Intersection getOriginIntersection() {

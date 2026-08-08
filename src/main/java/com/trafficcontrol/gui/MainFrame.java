@@ -1,6 +1,7 @@
 package com.trafficcontrol.gui;
 
 import com.trafficcontrol.engine.SimulationEngine;
+import com.trafficcontrol.exceptions.InvalidRouteException;
 import com.trafficcontrol.exceptions.SimulationStateException;
 import com.trafficcontrol.model.Direction;
 import com.trafficcontrol.model.LightPhase;
@@ -9,6 +10,7 @@ import com.trafficcontrol.observer.TrafficObserver;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -18,6 +20,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
@@ -25,6 +28,7 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GridLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.time.LocalTime;
@@ -48,7 +52,9 @@ public class MainFrame extends JFrame implements TrafficObserver {
     private final JTextArea eventLog = new JTextArea();
     private final JButton startButton = new JButton("Start Simulation");
     private final JButton stopButton = new JButton("Stop Simulation");
+    private final JButton spawnCarButton = new JButton("Spawn Custom Car");
     private final JLabel statusLabel = new JLabel("Stopped");
+    private int nextManualCarNumber = 1;
 
     public MainFrame(SimulationEngine engine) {
         super("Smart City Traffic Control - Simulation Dashboard");
@@ -89,7 +95,9 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
         startButton.addActionListener(e -> startSimulation());
         stopButton.addActionListener(e -> stopSimulation());
+        spawnCarButton.addActionListener(e -> spawnCar());
         stopButton.setEnabled(false);
+        spawnCarButton.setEnabled(false);
 
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
 
@@ -98,6 +106,8 @@ public class MainFrame extends JFrame implements TrafficObserver {
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         toolbar.add(new JLabel("Status:"));
         toolbar.add(statusLabel);
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolbar.add(spawnCarButton);
         return toolbar;
     }
 
@@ -117,6 +127,7 @@ public class MainFrame extends JFrame implements TrafficObserver {
             engine.start();
             startButton.setEnabled(false);
             stopButton.setEnabled(true);
+            spawnCarButton.setEnabled(true);
             statusLabel.setText("Running");
         } catch (SimulationStateException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Cannot start", JOptionPane.WARNING_MESSAGE);
@@ -128,9 +139,44 @@ public class MainFrame extends JFrame implements TrafficObserver {
             engine.stop();
             startButton.setEnabled(true);
             stopButton.setEnabled(false);
+            spawnCarButton.setEnabled(false);
             statusLabel.setText("Stopped");
         } catch (SimulationStateException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Cannot stop", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void spawnCar() {
+        String[] intersectionIds = engine.getCityMap().getIntersectionIds().toArray(String[]::new);
+        if (intersectionIds.length < 2) {
+            JOptionPane.showMessageDialog(this, "The map needs at least two intersections.",
+                    "Cannot spawn car", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JComboBox<String> originBox = new JComboBox<>(intersectionIds);
+        JComboBox<String> destinationBox = new JComboBox<>(intersectionIds);
+        destinationBox.setSelectedIndex(1);
+        JTextField labelField = new JTextField("Manual Car " + nextManualCarNumber, 18);
+
+        JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
+        form.add(new JLabel("Start intersection:"));
+        form.add(originBox);
+        form.add(new JLabel("Destination:"));
+        form.add(destinationBox);
+        form.add(new JLabel("Tracking label:"));
+        form.add(labelField);
+
+        while (JOptionPane.showConfirmDialog(this, form, "Spawn Custom Car",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
+            try {
+                engine.spawnCar((String) originBox.getSelectedItem(),
+                        (String) destinationBox.getSelectedItem(), labelField.getText());
+                nextManualCarNumber++;
+                return;
+            } catch (SimulationStateException | InvalidRouteException | IllegalArgumentException e) {
+                JOptionPane.showMessageDialog(this, e.getMessage(), "Cannot spawn car", JOptionPane.WARNING_MESSAGE);
+            }
         }
     }
 
@@ -146,13 +192,16 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
     @Override
     public void onVehicleSpawned(Vehicle vehicle) {
-        appendLine(vehicle.getTypeName() + " " + vehicle.getId() + " spawned ("
+        String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
+        appendLine(vehicle.getTypeName() + " " + vehicle.getId() + label + " spawned ("
                 + vehicle.getOriginIntersection().getId() + " -> " + vehicle.getDestinationIntersection().getId() + ")");
     }
 
     @Override
     public void onVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
-        appendLine(vehicle.getTypeName() + " " + vehicle.getId() + " arrived - waited " + waitTimeMillis + "ms");
+        String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
+        appendLine(vehicle.getTypeName() + " " + vehicle.getId() + label
+                + " arrived - waited " + waitTimeMillis + "ms");
     }
 
     @Override

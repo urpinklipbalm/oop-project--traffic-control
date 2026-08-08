@@ -84,6 +84,9 @@ public class CityPanel extends JPanel implements TrafficObserver {
     /** intersection id -> when it was last preempted, for the fading highlight. */
     private final Map<String, Long> lastPreemption = new ConcurrentHashMap<>();
 
+    /** manually spawned vehicles that need a tracking callout on the map. */
+    private final Map<String, Vehicle> labeledVehicles = new ConcurrentHashMap<>();
+
     // recomputed whenever the panel is resized
     private double scale = 1;
     private double offsetX;
@@ -121,6 +124,7 @@ public class CityPanel extends JPanel implements TrafficObserver {
         drawQueues(g2);
         drawVehicles(g2, now, speedFactor);
         drawIntersections(g2, now);
+        drawTrackedVehicleLabels(g2, now, speedFactor);
         drawLegend(g2);
 
         g2.dispose();
@@ -245,6 +249,50 @@ public class CityPanel extends JPanel implements TrafficObserver {
                 -VEHICLE_LENGTH / 2, -VEHICLE_WIDTH / 2, VEHICLE_LENGTH, VEHICLE_WIDTH, 3, 3));
 
         shape.dispose();
+    }
+
+    /** draws a speech-bubble style callout that follows every manually labeled car. */
+    private void drawTrackedVehicleLabels(Graphics2D g2, long now, double speedFactor) {
+        for (Vehicle vehicle : labeledVehicles.values()) {
+            Road road = vehicle.getCurrentRoad();
+            if (road == null || vehicle.getCustomLabel() == null) {
+                continue;
+            }
+
+            Point2D from = offsetForCarriageway(road, toScreen(road.getFrom().getPosition()));
+            Point2D to = offsetForCarriageway(road, toScreen(road.getTo().getPosition()));
+            double progress = vehicle.getTravelState() == Vehicle.TravelState.ON_ROAD
+                    ? vehicle.getProgressAlongRoad(now, speedFactor)
+                    : 1.0;
+            double x = from.getX() + (to.getX() - from.getX()) * progress;
+            double y = from.getY() + (to.getY() - from.getY()) * progress;
+            drawTrackingCallout(g2, x, y, vehicle);
+        }
+    }
+
+    private void drawTrackingCallout(Graphics2D g2, double x, double y, Vehicle vehicle) {
+        String text = vehicle.getCustomLabel() + " (" + vehicle.getId() + ")";
+        Font font = getFont().deriveFont(Font.BOLD, 11f);
+        g2.setFont(font);
+
+        int padding = 7;
+        double bubbleWidth = g2.getFontMetrics().stringWidth(text) + padding * 2.0;
+        double bubbleHeight = g2.getFontMetrics().getHeight() + 6.0;
+        double bubbleX = Math.max(8, Math.min(x + 14, getWidth() - bubbleWidth - 8));
+        double bubbleY = Math.max(8, y - bubbleHeight - 18);
+
+        g2.setColor(vehicle.getColor());
+        g2.setStroke(new BasicStroke(2));
+        g2.draw(new Line2D.Double(x, y, bubbleX + 8, bubbleY + bubbleHeight));
+        g2.fill(new Ellipse2D.Double(x - 4, y - 4, 8, 8));
+
+        g2.setColor(CARD_FILL);
+        g2.fill(new RoundRectangle2D.Double(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 8, 8));
+        g2.setColor(vehicle.getColor());
+        g2.draw(new RoundRectangle2D.Double(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 8, 8));
+        g2.setColor(LABEL);
+        g2.drawString(text, (float) (bubbleX + padding),
+                (float) (bubbleY + bubbleHeight - 7));
     }
 
     // --- queues waiting at red lights ---
@@ -430,5 +478,17 @@ public class CityPanel extends JPanel implements TrafficObserver {
         // called from an engine thread; just records a timestamp the paint pass
         // reads later, so there's no ui work happening off the EDT here.
         lastPreemption.put(intersectionId, System.currentTimeMillis());
+    }
+
+    @Override
+    public void onVehicleSpawned(Vehicle vehicle) {
+        if (vehicle.getCustomLabel() != null) {
+            labeledVehicles.put(vehicle.getId(), vehicle);
+        }
+    }
+
+    @Override
+    public void onVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
+        labeledVehicles.remove(vehicle.getId());
     }
 }
