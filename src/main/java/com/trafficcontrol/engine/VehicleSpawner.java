@@ -10,6 +10,7 @@ import com.trafficcontrol.model.Motorcycle;
 import com.trafficcontrol.model.Road;
 import com.trafficcontrol.model.Vehicle;
 import com.trafficcontrol.observer.TrafficEventPublisher;
+import com.trafficcontrol.persistence.SimulationSnapshot;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -21,11 +22,10 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class VehicleSpawner implements Runnable {
 
-    // tuned so the 9-intersection grid actually gets congested - much slower than
-    // this and queues never build up, so the adaptive signal timing has nothing
-    // to react to and the simulation looks static.
-    private static final long MIN_SPAWN_INTERVAL_MILLIS = 250;
-    private static final long MAX_SPAWN_INTERVAL_MILLIS = 700;
+    // keep automatic traffic sparse enough that individual vehicles and queue
+    // movements remain readable. manual spawning is still immediate.
+    private static final long MIN_SPAWN_INTERVAL_MILLIS = 900;
+    private static final long MAX_SPAWN_INTERVAL_MILLIS = 1600;
     private static final double EMERGENCY_VEHICLE_CHANCE = 0.06;
     private static final double BUS_CHANCE = 0.18;
     private static final double MOTORCYCLE_CHANCE = 0.20;
@@ -99,6 +99,19 @@ public class VehicleSpawner implements Runnable {
         return spawnVehicle(new Car(route, customLabel), route);
     }
 
+    /** Recreates one unfinished snapshot vehicle at its original intersection. */
+    public Vehicle restoreVehicle(SimulationSnapshot.SavedVehicle saved) throws InvalidRouteException {
+        List<Intersection> route = cityMap.getRoute(saved.originId(), saved.destinationId());
+        Vehicle vehicle = switch (saved.type()) {
+            case "Car" -> new Car(route, saved.customLabel());
+            case "Bus" -> new Bus(route);
+            case "Motorcycle" -> new Motorcycle(route);
+            case "Emergency" -> new EmergencyVehicle(route);
+            default -> throw new IllegalArgumentException("unknown saved vehicle type: " + saved.type());
+        };
+        return placeVehicle(vehicle, route, false);
+    }
+
     private List<Intersection> chooseRandomRoute(List<String> ids, ThreadLocalRandom random)
             throws InvalidRouteException {
         String originId = ids.get(random.nextInt(ids.size()));
@@ -111,17 +124,24 @@ public class VehicleSpawner implements Runnable {
     }
 
     private Vehicle spawnVehicle(Vehicle vehicle, List<Intersection> route) throws InvalidRouteException {
+        return placeVehicle(vehicle, route, true);
+    }
+
+    private Vehicle placeVehicle(Vehicle vehicle, List<Intersection> route, boolean countAsNew)
+            throws InvalidRouteException {
         Road firstRoad = cityMap.getRoad(route.get(0).getId(), route.get(1).getId());
         if (firstRoad == null) {
             throw new InvalidRouteException("route has no road from "
                     + route.get(0).getId() + " to " + route.get(1).getId());
         }
-
         vehicle.enterRoad(firstRoad, System.currentTimeMillis());
         firstRoad.addVehicle(vehicle);
-
-        statistics.recordSpawn();
-        publisher.publishVehicleSpawned(vehicle);
+        if (countAsNew) {
+            statistics.recordSpawn();
+            publisher.publishVehicleSpawned(vehicle);
+        } else {
+            publisher.publishVehicleRestored(vehicle);
+        }
         return vehicle;
     }
 

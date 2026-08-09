@@ -7,13 +7,20 @@ import com.trafficcontrol.model.Direction;
 import com.trafficcontrol.model.LightPhase;
 import com.trafficcontrol.model.Vehicle;
 import com.trafficcontrol.observer.TrafficObserver;
+import com.trafficcontrol.persistence.CsvCityMapLoader;
+import com.trafficcontrol.persistence.SimulationSnapshot;
+import com.trafficcontrol.exceptions.CityMapLoadException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -24,6 +31,7 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -33,6 +41,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.io.File;
 
 /**
  * the dashboard window: Start/Stop controls, the live animated city map,
@@ -47,8 +56,11 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    private final SimulationEngine engine;
-    private final CityPanel cityPanel;
+    private SimulationEngine engine;
+    private CityPanel cityPanel;
+    private final TrafficObserver persistentObserver;
+    private final CsvCityMapLoader persistence = new CsvCityMapLoader();
+    private final JPanel mapContainer = new JPanel(new BorderLayout());
     private final JTextArea eventLog = new JTextArea();
     private final JButton startButton = new JButton("Start Simulation");
     private final JButton stopButton = new JButton("Stop Simulation");
@@ -57,12 +69,16 @@ public class MainFrame extends JFrame implements TrafficObserver {
     private int nextManualCarNumber = 1;
 
     public MainFrame(SimulationEngine engine) {
+        this(engine, null);
+    }
+
+    public MainFrame(SimulationEngine engine, TrafficObserver persistentObserver) {
         super("Smart City Traffic Control - Simulation Dashboard");
         this.engine = engine;
+        this.persistentObserver = persistentObserver;
         this.cityPanel = new CityPanel(engine);
 
-        // the map subscribes itself so callers only ever have to register the frame
-        engine.addObserver(cityPanel);
+        attachObservers();
 
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
@@ -73,6 +89,7 @@ public class MainFrame extends JFrame implements TrafficObserver {
         });
 
         setLayout(new BorderLayout());
+        setJMenuBar(buildMenuBar());
         add(buildToolbar(), BorderLayout.NORTH);
         add(buildSplitView(), BorderLayout.CENTER);
 
@@ -83,11 +100,153 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
     /** map on top, event log below, draggable divider between them. */
     private JComponent buildSplitView() {
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, cityPanel, buildLogPanel());
+        mapContainer.add(cityPanel, BorderLayout.CENTER);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mapContainer, buildLogPanel());
         split.setResizeWeight(1.0); // extra height from resizing goes to the map, not the log
         split.setDividerLocation(540);
         split.setBorder(BorderFactory.createEmptyBorder());
         return split;
+    }
+
+    private JMenuBar buildMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("File");
+        fileMenu.add(menuItem("Load City Map...", this::loadCityMap));
+        fileMenu.add(menuItem("Save City Map As...", this::saveCityMap));
+        fileMenu.addSeparator();
+        fileMenu.add(menuItem("Load Snapshot...", this::loadSnapshot));
+        fileMenu.add(menuItem("Save Snapshot As...", this::saveSnapshot));
+        fileMenu.addSeparator();
+        fileMenu.add(menuItem("Export Statistics...", this::exportStatistics));
+        menuBar.add(fileMenu);
+        return menuBar;
+    }
+
+    private JMenuItem menuItem(String label, Runnable action) {
+        JMenuItem item = new JMenuItem(label);
+        item.addActionListener(e -> action.run());
+        return item;
+    }
+
+    private void attachObservers() {
+        engine.addObserver(this);
+        engine.addObserver(cityPanel);
+        if (persistentObserver != null) {
+            engine.addObserver(persistentObserver);
+        }
+    }
+
+    private boolean requireStoppedForLoad() {
+        if (!engine.isRunning()) {
+            return true;
+        }
+        JOptionPane.showMessageDialog(this, "Stop the simulation before loading a map or snapshot.",
+                "Simulation is running", JOptionPane.WARNING_MESSAGE);
+        return false;
+    }
+
+    private JFileChooser csvChooser(String title) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(title);
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV files (*.csv)", "csv"));
+        return chooser;
+    }
+
+    private void loadCityMap() {
+        if (!requireStoppedForLoad()) return;
+        JFileChooser chooser = csvChooser("Load City Map");
+        chooser.setCurrentDirectory(new File("src/main/resources/maps"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        try {
+            replaceEngine(new SimulationEngine(persistence.loadCityMap(chooser.getSelectedFile().getPath())));
+            appendLine("loaded city map: " + chooser.getSelectedFile().getName());
+        } catch (CityMapLoadException | IllegalArgumentException e) {
+            showPersistenceError("Could not load city map", e);
+        }
+    }
+
+    private void saveCityMap() {
+        JFileChooser chooser = csvChooser("Save City Map");
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File file = ensureCsvExtension(chooser.getSelectedFile());
+        try {
+            persistence.saveCityMap(engine.getCityMap(), file.getPath());
+            appendLine("saved city map: " + file.getName());
+        } catch (CityMapLoadException e) {
+            showPersistenceError("Could not save city map", e);
+        }
+    }
+
+    private void saveSnapshot() {
+        if (!requireStoppedForLoad()) return;
+        JFileChooser chooser = csvChooser("Save Simulation Snapshot");
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File file = ensureCsvExtension(chooser.getSelectedFile());
+        try {
+            persistence.saveSnapshot(engine.getCityMap(), engine.getStatistics(), file.getPath());
+            appendLine("saved simulation snapshot: " + file.getName());
+        } catch (CityMapLoadException e) {
+            showPersistenceError("Could not save snapshot", e);
+        }
+    }
+
+    private void loadSnapshot() {
+        if (!requireStoppedForLoad()) return;
+        JFileChooser chooser = csvChooser("Load Simulation Snapshot");
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        try {
+            SimulationSnapshot snapshot = persistence.loadSnapshot(chooser.getSelectedFile().getPath());
+            SimulationEngine replacement = new SimulationEngine(snapshot.getCityMap());
+            replacement.getStatistics().restore(snapshot.getVehiclesSpawned(), snapshot.getVehiclesArrived(),
+                    snapshot.getAverageWaitTimeMillis(), snapshot.getAverageTravelTimeMillis());
+            replacement.restoreVehicles(snapshot.getUnfinishedVehicles());
+            replaceEngine(replacement);
+            appendLine("loaded snapshot: " + chooser.getSelectedFile().getName()
+                    + " (" + snapshot.getUnfinishedVehicles().size()
+                    + " unfinished vehicles will restart from their origins)");
+        } catch (CityMapLoadException | IllegalArgumentException e) {
+            showPersistenceError("Could not load snapshot", e);
+        }
+    }
+
+    private void exportStatistics() {
+        JFileChooser chooser = csvChooser("Export Simulation Statistics");
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File file = ensureCsvExtension(chooser.getSelectedFile());
+        try {
+            persistence.exportStatistics(engine.getStatistics(), file.getPath());
+            appendLine("exported statistics: " + file.getName());
+        } catch (CityMapLoadException e) {
+            showPersistenceError("Could not export statistics", e);
+        }
+    }
+
+    private void replaceEngine(SimulationEngine replacement) {
+        engine.removeObserver(this);
+        engine.removeObserver(cityPanel);
+        if (persistentObserver != null) engine.removeObserver(persistentObserver);
+        cityPanel.disposePanel();
+        mapContainer.remove(cityPanel);
+
+        engine = replacement;
+        cityPanel = new CityPanel(engine);
+        attachObservers();
+        mapContainer.add(cityPanel, BorderLayout.CENTER);
+        mapContainer.revalidate();
+        mapContainer.repaint();
+        startButton.setEnabled(true);
+        stopButton.setEnabled(false);
+        spawnCarButton.setEnabled(false);
+        statusLabel.setText("Stopped");
+    }
+
+    private File ensureCsvExtension(File file) {
+        return file.getName().toLowerCase().endsWith(".csv")
+                ? file : new File(file.getParentFile(), file.getName() + ".csv");
+    }
+
+    private void showPersistenceError(String title, Exception error) {
+        JOptionPane.showMessageDialog(this, error.getMessage(), title, JOptionPane.ERROR_MESSAGE);
     }
 
     private JComponent buildToolbar() {
@@ -195,6 +354,14 @@ public class MainFrame extends JFrame implements TrafficObserver {
         String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
         appendLine(vehicle.getTypeName() + " " + vehicle.getId() + label + " spawned ("
                 + vehicle.getOriginIntersection().getId() + " -> " + vehicle.getDestinationIntersection().getId() + ")");
+    }
+
+    @Override
+    public void onVehicleRestored(Vehicle vehicle) {
+        String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
+        appendLine(vehicle.getTypeName() + " " + vehicle.getId() + label
+                + " restored from snapshot at " + vehicle.getOriginIntersection().getId()
+                + " (destination " + vehicle.getDestinationIntersection().getId() + ")");
     }
 
     @Override

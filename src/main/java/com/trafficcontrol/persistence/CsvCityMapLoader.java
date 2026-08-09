@@ -7,17 +7,21 @@ import com.trafficcontrol.model.Direction;
 import com.trafficcontrol.model.Intersection;
 import com.trafficcontrol.model.Position;
 import com.trafficcontrol.model.Road;
+import com.trafficcontrol.model.Vehicle;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Base64;
 
 /**
  * Reads and writes city map layouts in the CSV format documented at the
@@ -36,13 +40,15 @@ public class CsvCityMapLoader implements PersistenceService {
     private static final String INTERSECTIONS_HEADER = "[INTERSECTIONS]";
     private static final String ROADS_HEADER = "[ROADS]";
     private static final String STATISTICS_HEADER = "[STATISTICS]";
+    private static final String VEHICLES_HEADER = "[VEHICLES]";
     private static final DateTimeFormatter TIMESTAMP_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private enum Section { NONE, INTERSECTIONS, ROADS, STATISTICS }
+    private enum Section { NONE, INTERSECTIONS, ROADS, STATISTICS, VEHICLES }
 
     /** Result of a single parsing pass: the map, plus any [STATISTICS] rows found (empty if none). */
-    private record ParseResult(CityMap cityMap, Map<String, String> statistics) {
+    private record ParseResult(CityMap cityMap, Map<String, String> statistics,
+                               List<SimulationSnapshot.SavedVehicle> vehicles) {
     }
 
     @Override
@@ -71,7 +77,7 @@ public class CsvCityMapLoader implements PersistenceService {
         double avgWait = parseStatDouble(stats, "averageWaitTimeMillis", filePath);
         double avgTravel = parseStatDouble(stats, "averageTravelTimeMillis", filePath);
 
-        return new SimulationSnapshot(result.cityMap(), spawned, arrived, avgWait, avgTravel);
+        return new SimulationSnapshot(result.cityMap(), spawned, arrived, avgWait, avgTravel, result.vehicles());
     }
 
     private long parseStatLong(Map<String, String> stats, String key, String filePath)
@@ -115,6 +121,7 @@ public class CsvCityMapLoader implements PersistenceService {
         CityMap cityMap = new CityMap();
         Map<String, Intersection> intersectionsById = new LinkedHashMap<>();
         Map<String, String> statistics = new LinkedHashMap<>();
+        List<SimulationSnapshot.SavedVehicle> vehicles = new ArrayList<>();
 
         Section section = Section.NONE;
         boolean expectHeaderRow = false;
@@ -142,6 +149,11 @@ public class CsvCityMapLoader implements PersistenceService {
                 expectHeaderRow = true;
                 continue;
             }
+            if (line.equals(VEHICLES_HEADER)) {
+                section = Section.VEHICLES;
+                expectHeaderRow = true;
+                continue;
+            }
             if (expectHeaderRow) {
                 // the "id,x,y" / "id,fromId,toId,..." / "metric,value" column-name
                 // row - not data, skip it
@@ -156,6 +168,8 @@ public class CsvCityMapLoader implements PersistenceService {
                         parseRoadRow(line, lineNumber, cityMap, intersectionsById);
                 case STATISTICS ->
                         parseStatisticRow(line, lineNumber, statistics);
+                case VEHICLES ->
+                        parseVehicleRow(line, lineNumber, vehicles);
                 case NONE ->
                         throw new CityMapLoadException(
                                 "Data row at line " + lineNumber + " appears before an "
@@ -164,7 +178,30 @@ public class CsvCityMapLoader implements PersistenceService {
             }
         }
 
-        return new ParseResult(cityMap, statistics);
+        return new ParseResult(cityMap, statistics, vehicles);
+    }
+
+    private void parseVehicleRow(String line, int lineNumber,
+                                 List<SimulationSnapshot.SavedVehicle> vehicles)
+            throws CityMapLoadException {
+        String[] fields = line.split(",", -1);
+        if (fields.length != 4) {
+            throw new CityMapLoadException("Malformed vehicle row at line " + lineNumber
+                    + " (expected 4 columns, got " + fields.length + "): " + line);
+        }
+        String type = fields[0].trim();
+        if (!List.of("Car", "Bus", "Motorcycle", "Emergency").contains(type)) {
+            throw new CityMapLoadException("Unknown vehicle type \"" + type + "\" at line " + lineNumber);
+        }
+        String label;
+        try {
+            label = fields[3].equals("-") ? null
+                    : new String(Base64.getUrlDecoder().decode(fields[3]), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            throw new CityMapLoadException("Invalid vehicle label encoding at line " + lineNumber);
+        }
+        vehicles.add(new SimulationSnapshot.SavedVehicle(
+                type, fields[1].trim(), fields[2].trim(), label));
     }
 
     private void parseIntersectionRow(String line, int lineNumber, CityMap cityMap,
@@ -295,9 +332,38 @@ public class CsvCityMapLoader implements PersistenceService {
             writeStat(writer, "vehiclesInTransit", statistics.getVehiclesInTransit());
             writeStat(writer, "averageWaitTimeMillis", statistics.getAverageWaitTimeMillis());
             writeStat(writer, "averageTravelTimeMillis", statistics.getAverageTravelTimeMillis());
+            writer.newLine();
+            writer.write(VEHICLES_HEADER);
+            writer.newLine();
+            writer.write("type,originId,destinationId,labelBase64");
+            writer.newLine();
+            for (Vehicle vehicle : collectUnfinishedVehicles(cityMap)) {
+                String label = vehicle.getCustomLabel() == null ? "-"
+                        : Base64.getUrlEncoder().encodeToString(
+                                vehicle.getCustomLabel().getBytes(StandardCharsets.UTF_8));
+                writer.write(String.join(",", vehicle.getTypeName(),
+                        vehicle.getOriginIntersection().getId(),
+                        vehicle.getDestinationIntersection().getId(), label));
+                writer.newLine();
+            }
         } catch (IOException e) {
             throw new CityMapLoadException("Failed to write snapshot file: " + filePath, e);
         }
+    }
+
+    private List<Vehicle> collectUnfinishedVehicles(CityMap cityMap) {
+        Map<String, Vehicle> unique = new LinkedHashMap<>();
+        for (Road road : cityMap.getRoads()) {
+            for (Vehicle vehicle : road.getVehiclesOnRoad()) unique.put(vehicle.getId(), vehicle);
+        }
+        for (Intersection intersection : cityMap.getIntersections()) {
+            for (Direction direction : Direction.values()) {
+                for (Vehicle vehicle : intersection.getQueuedVehicles(direction)) {
+                    unique.put(vehicle.getId(), vehicle);
+                }
+            }
+        }
+        return new ArrayList<>(unique.values());
     }
 
     private void writeCityMapBody(BufferedWriter writer, CityMap cityMap) throws IOException {

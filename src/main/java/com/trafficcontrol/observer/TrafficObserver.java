@@ -22,6 +22,10 @@ public interface TrafficObserver {
     default void onVehicleSpawned(Vehicle vehicle) {
     }
 
+    /** An unfinished snapshot vehicle was recreated; it is not a new spawn. */
+    default void onVehicleRestored(Vehicle vehicle) {
+    }
+
     default void onVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
     }
 

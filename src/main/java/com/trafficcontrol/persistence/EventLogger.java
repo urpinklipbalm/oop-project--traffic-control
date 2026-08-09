@@ -47,6 +47,13 @@ public class EventLogger implements TrafficObserver, AutoCloseable {
     }
 
     @Override
+    public void onVehicleRestored(Vehicle vehicle) {
+        writeLine(vehicle.getTypeName() + " " + vehicle.getId() + " restored from snapshot: "
+                + vehicle.getOriginIntersection().getId() + " -> "
+                + vehicle.getDestinationIntersection().getId());
+    }
+
+    @Override
     public void onVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
         String label = vehicle.getCustomLabel() == null ? "" : " [" + vehicle.getCustomLabel() + "]";
         writeLine(vehicle.getTypeName() + " " + vehicle.getId() + label + " arrived: waited "

@@ -3,6 +3,7 @@ package com.trafficcontrol.model;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -103,6 +104,16 @@ public class Intersection {
         queueLock.lock();
         try {
             return queues.get(direction).size();
+        } finally {
+            queueLock.unlock();
+        }
+    }
+
+    /** immutable snapshot in real queue order for safe gui rendering. */
+    public List<Vehicle> getQueuedVehicles(Direction direction) {
+        queueLock.lock();
+        try {
+            return List.copyOf(queues.get(direction));
         } finally {
             queueLock.unlock();
         }

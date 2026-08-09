@@ -22,6 +22,8 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.RoundRectangle2D;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * driven by a repaint timer, and only ever *reads* simulation state. all
  * of those reads are already safe to make while the engine threads are
  * writing: a road's vehicle list is copy-on-write, a light's phase is
- * volatile, a queue length is taken under the intersection's own lock,
+ * volatile, a queue snapshot is taken under the intersection's own lock,
  * and a vehicle's position is published as one immutable snapshot (see
  * Vehicle.RoadPlacement). the panel never writes anything back, so it
  * can't disturb the simulation no matter when a frame lands.
@@ -54,7 +56,7 @@ public class CityPanel extends JPanel implements TrafficObserver {
     private static final double VEHICLE_LENGTH = 13;
     private static final double VEHICLE_WIDTH = 8;
     private static final double STOP_BAR_LENGTH = 12;
-    private static final int MAX_QUEUE_BOXES_DRAWN = 6;
+    private static final int MAX_QUEUE_VEHICLES_DRAWN = 12;
     private static final long PREEMPTION_FLASH_MILLIS = 1500;
 
     private static final Color BACKGROUND = new Color(0xEEF1F5);
@@ -64,7 +66,6 @@ public class CityPanel extends JPanel implements TrafficObserver {
     private static final Color LIGHT_GREEN = new Color(0x22C55E);
     private static final Color LIGHT_AMBER = new Color(0xFACC15);
     private static final Color LIGHT_RED = new Color(0xDC2626);
-    private static final Color QUEUED_VEHICLE = new Color(0x9CA3AF);
     private static final Color LABEL = new Color(0x4B5563);
     private static final Color CARD_FILL = new Color(0xFFFFFF);
     private static final Color CARD_BORDER = new Color(0xD1D5DB);
@@ -72,6 +73,7 @@ public class CityPanel extends JPanel implements TrafficObserver {
 
     private final SimulationEngine engine;
     private final CityMap cityMap;
+    private final Timer repaintTimer;
 
     /**
      * which road arrives at a given intersection from a given direction.
@@ -87,6 +89,9 @@ public class CityPanel extends JPanel implements TrafficObserver {
     /** manually spawned vehicles that need a tracking callout on the map. */
     private final Map<String, Vehicle> labeledVehicles = new ConcurrentHashMap<>();
 
+    /** exact screen locations of visible moving and queued vehicles, rebuilt every frame. */
+    private final Map<String, Point2D> renderedVehiclePositions = new HashMap<>();
+
     // recomputed whenever the panel is resized
     private double scale = 1;
     private double offsetX;
@@ -97,7 +102,13 @@ public class CityPanel extends JPanel implements TrafficObserver {
         this.cityMap = engine.getCityMap();
         setBackground(BACKGROUND);
         indexIncomingRoads();
-        new Timer(FRAME_DELAY_MILLIS, e -> repaint()).start();
+        repaintTimer = new Timer(FRAME_DELAY_MILLIS, e -> repaint());
+        repaintTimer.start();
+    }
+
+    /** Stops this panel's repaint loop when a newly loaded map replaces it. */
+    public void disposePanel() {
+        repaintTimer.stop();
     }
 
     private void indexIncomingRoads() {
@@ -121,10 +132,11 @@ public class CityPanel extends JPanel implements TrafficObserver {
         double speedFactor = engine.getClock().getSpeedFactor();
 
         drawRoads(g2);
+        renderedVehiclePositions.clear();
         drawQueues(g2);
         drawVehicles(g2, now, speedFactor);
         drawIntersections(g2, now);
-        drawTrackedVehicleLabels(g2, now, speedFactor);
+        drawTrackedVehicleLabels(g2);
         drawLegend(g2);
 
         g2.dispose();
@@ -220,14 +232,32 @@ public class CityPanel extends JPanel implements TrafficObserver {
         for (Road road : cityMap.getRoads()) {
             Point2D from = offsetForCarriageway(road, toScreen(road.getFrom().getPosition()));
             Point2D to = offsetForCarriageway(road, toScreen(road.getTo().getPosition()));
+            double screenLength = from.distance(to);
 
-            // safe to iterate while the mover mutates it - the list is copy-on-write
-            for (Vehicle vehicle : road.getVehiclesOnRoad()) {
+            List<Vehicle> roadVehicles = new ArrayList<>(road.getVehiclesOnRoad());
+            roadVehicles.sort(Comparator.comparingDouble(
+                    (Vehicle vehicle) -> vehicle.getProgressAlongRoad(now, speedFactor)).reversed());
+
+            int queuedAhead = road.getTo().getQueueLength(road.getApproachDirection());
+            boolean mustStop = queuedAhead > 0
+                    || !road.getTo().getTrafficLight().isGreenFor(road.getApproachDirection());
+            int approachSlot = 0;
+
+            // the copy is a stable frame snapshot while the mover updates the road
+            for (Vehicle vehicle : roadVehicles) {
                 double progress = vehicle.getProgressAlongRoad(now, speedFactor);
+                if (mustStop) {
+                    double distanceFromJunction = JUNCTION_SIZE / 2 + VEHICLE_LENGTH
+                            + (queuedAhead + approachSlot) * (VEHICLE_LENGTH + 3);
+                    double stoppingProgress = Math.max(0.0, 1.0 - distanceFromJunction / screenLength);
+                    progress = Math.min(progress, stoppingProgress);
+                    approachSlot++;
+                }
                 double x = from.getX() + (to.getX() - from.getX()) * progress;
                 double y = from.getY() + (to.getY() - from.getY()) * progress;
                 double angle = Math.atan2(to.getY() - from.getY(), to.getX() - from.getX());
                 drawVehicle(g2, x, y, angle, vehicle.getColor());
+                renderedVehiclePositions.put(vehicle.getId(), new Point2D.Double(x, y));
             }
         }
     }
@@ -252,21 +282,17 @@ public class CityPanel extends JPanel implements TrafficObserver {
     }
 
     /** draws a speech-bubble style callout that follows every manually labeled car. */
-    private void drawTrackedVehicleLabels(Graphics2D g2, long now, double speedFactor) {
+    private void drawTrackedVehicleLabels(Graphics2D g2) {
         for (Vehicle vehicle : labeledVehicles.values()) {
             Road road = vehicle.getCurrentRoad();
             if (road == null || vehicle.getCustomLabel() == null) {
                 continue;
             }
 
-            Point2D from = offsetForCarriageway(road, toScreen(road.getFrom().getPosition()));
-            Point2D to = offsetForCarriageway(road, toScreen(road.getTo().getPosition()));
-            double progress = vehicle.getTravelState() == Vehicle.TravelState.ON_ROAD
-                    ? vehicle.getProgressAlongRoad(now, speedFactor)
-                    : 1.0;
-            double x = from.getX() + (to.getX() - from.getX()) * progress;
-            double y = from.getY() + (to.getY() - from.getY()) * progress;
-            drawTrackingCallout(g2, x, y, vehicle);
+            Point2D renderedPosition = renderedVehiclePositions.get(vehicle.getId());
+            if (renderedPosition != null) {
+                drawTrackingCallout(g2, renderedPosition.getX(), renderedPosition.getY(), vehicle);
+            }
         }
     }
 
@@ -301,16 +327,16 @@ public class CityPanel extends JPanel implements TrafficObserver {
         for (Intersection intersection : cityMap.getIntersections()) {
             Map<Direction, Road> approaches = incomingRoads.getOrDefault(intersection, Map.of());
             for (Map.Entry<Direction, Road> entry : approaches.entrySet()) {
-                int queued = intersection.getQueueLength(entry.getKey());
-                if (queued > 0) {
-                    drawQueue(g2, entry.getValue(), queued);
+                List<Vehicle> queuedVehicles = intersection.getQueuedVehicles(entry.getKey());
+                if (!queuedVehicles.isEmpty()) {
+                    drawQueue(g2, entry.getValue(), queuedVehicles);
                 }
             }
         }
     }
 
     /** stacks waiting vehicles back from the junction along the road they arrived on. */
-    private void drawQueue(Graphics2D g2, Road road, int queued) {
+    private void drawQueue(Graphics2D g2, Road road, List<Vehicle> queuedVehicles) {
         Point2D from = offsetForCarriageway(road, toScreen(road.getFrom().getPosition()));
         Point2D to = offsetForCarriageway(road, toScreen(road.getTo().getPosition()));
 
@@ -328,15 +354,21 @@ public class CityPanel extends JPanel implements TrafficObserver {
         double startX = to.getX() - dx / length * (JUNCTION_SIZE / 2 + VEHICLE_LENGTH);
         double startY = to.getY() - dy / length * (JUNCTION_SIZE / 2 + VEHICLE_LENGTH);
 
-        int drawn = Math.min(queued, MAX_QUEUE_BOXES_DRAWN);
+        int vehiclesThatFit = Math.max(1,
+                (int) ((length - JUNCTION_SIZE - VEHICLE_LENGTH) / (VEHICLE_LENGTH + 3)));
+        int drawn = Math.min(queuedVehicles.size(), Math.min(MAX_QUEUE_VEHICLES_DRAWN, vehiclesThatFit));
         for (int i = 0; i < drawn; i++) {
-            drawVehicle(g2, startX + stepX * i, startY + stepY * i, angle, QUEUED_VEHICLE);
+            Vehicle vehicle = queuedVehicles.get(i);
+            double vehicleX = startX + stepX * i;
+            double vehicleY = startY + stepY * i;
+            drawVehicle(g2, vehicleX, vehicleY, angle, vehicle.getColor());
+            renderedVehiclePositions.put(vehicle.getId(), new Point2D.Double(vehicleX, vehicleY));
         }
 
-        if (queued > MAX_QUEUE_BOXES_DRAWN) {
+        if (queuedVehicles.size() > drawn) {
             g2.setColor(LABEL);
             g2.setFont(getFont().deriveFont(Font.BOLD, 10f));
-            g2.drawString("+" + (queued - MAX_QUEUE_BOXES_DRAWN),
+            g2.drawString("+" + (queuedVehicles.size() - drawn),
                     (float) (startX + stepX * drawn), (float) (startY + stepY * drawn));
         }
     }
@@ -443,10 +475,10 @@ public class CityPanel extends JPanel implements TrafficObserver {
     // --- legend ---
 
     private void drawLegend(Graphics2D g2) {
-        List<String> labels = List.of("Car", "Bus", "Motorcycle", "Emergency", "Waiting");
+        List<String> labels = List.of("Car", "Bus", "Motorcycle", "Emergency");
         List<Color> colors = List.of(
                 new Color(0x3B82F6), new Color(0xF59E0B), new Color(0x10B981),
-                new Color(0xEF4444), new Color(0x9CA3AF));
+                new Color(0xEF4444));
 
         int padding = 10;
         int lineHeight = 16;
@@ -485,6 +517,11 @@ public class CityPanel extends JPanel implements TrafficObserver {
         if (vehicle.getCustomLabel() != null) {
             labeledVehicles.put(vehicle.getId(), vehicle);
         }
+    }
+
+    @Override
+    public void onVehicleRestored(Vehicle vehicle) {
+        onVehicleSpawned(vehicle);
     }
 
     @Override

@@ -38,7 +38,7 @@ public final class Main {
         }
         SimulationEngine engine = new SimulationEngine(cityMap);
 
-        attachEventLogger(engine);
+        EventLogger eventLogger = createEventLogger();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (engine.isRunning()) {
@@ -49,16 +49,14 @@ public final class Main {
         // TODO(Nameer): once gui.MainFrame grows into the full dashboard (CityPanel +
         // ControlPanel + StatisticsPanel), this is still the only line Main needs to change.
         SwingUtilities.invokeLater(() -> {
-            MainFrame frame = new MainFrame(engine);
-            engine.addObserver(frame);
+            MainFrame frame = new MainFrame(engine, eventLogger);
             frame.setVisible(true);
         });
     }
 
-    private static void attachEventLogger(SimulationEngine engine) {
+    private static EventLogger createEventLogger() {
         try {
             EventLogger eventLogger = new EventLogger(Path.of("logs"));
-            engine.addObserver(eventLogger);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
                     eventLogger.close();
@@ -66,9 +64,11 @@ public final class Main {
                     // best-effort flush on the way out - nothing useful to do if this fails
                 }
             }, "event-logger-shutdown"));
+            return eventLogger;
         } catch (IOException e) {
             // file logging is a nice-to-have, not something that should stop the app from launching
             System.err.println("could not open the event log file, continuing without file logging: " + e.getMessage());
+            return null;
         }
     }
 }

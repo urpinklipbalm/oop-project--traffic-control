@@ -25,7 +25,7 @@ public class SimulationClock {
 
     public static final double MIN_SPEED_FACTOR = 1.0;
     public static final double MAX_SPEED_FACTOR = 20.0;
-    private static final double DEFAULT_SPEED_FACTOR = 8.0;
+    private static final double DEFAULT_SPEED_FACTOR = 4.0;
 
     private volatile double speedFactor = DEFAULT_SPEED_FACTOR;
 

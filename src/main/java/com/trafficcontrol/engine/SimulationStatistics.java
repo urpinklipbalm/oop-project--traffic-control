@@ -25,6 +25,19 @@ public class SimulationStatistics {
         totalTravelTimeMillis.addAndGet(travelTimeMillis);
     }
 
+    /** Restores the aggregate totals stored in a persistence snapshot. */
+    public void restore(long spawned, long arrived, double averageWaitMillis,
+                        double averageTravelMillis) {
+        if (spawned < 0 || arrived < 0 || arrived > spawned
+                || averageWaitMillis < 0 || averageTravelMillis < 0) {
+            throw new IllegalArgumentException("invalid simulation statistics snapshot");
+        }
+        vehiclesSpawned.set(spawned);
+        vehiclesArrived.set(arrived);
+        totalWaitTimeMillis.set(Math.round(averageWaitMillis * arrived));
+        totalTravelTimeMillis.set(Math.round(averageTravelMillis * arrived));
+    }
+
     public long getVehiclesSpawned() {
         return vehiclesSpawned.get();
     }

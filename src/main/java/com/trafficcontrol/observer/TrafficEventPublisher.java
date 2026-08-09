@@ -24,6 +24,10 @@ public interface TrafficEventPublisher {
         }
 
         @Override
+        public void publishVehicleRestored(Vehicle vehicle) {
+        }
+
+        @Override
         public void publishVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis) {
         }
 
@@ -41,6 +45,8 @@ public interface TrafficEventPublisher {
     };
 
     void publishVehicleSpawned(Vehicle vehicle);
+
+    void publishVehicleRestored(Vehicle vehicle);
 
     void publishVehicleArrived(Vehicle vehicle, long waitTimeMillis, long travelTimeMillis);
 

@@ -9,6 +9,7 @@ import com.trafficcontrol.model.LightPhase;
 import com.trafficcontrol.model.Vehicle;
 import com.trafficcontrol.observer.TrafficEventPublisher;
 import com.trafficcontrol.observer.TrafficObserver;
+import com.trafficcontrol.persistence.SimulationSnapshot;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -34,6 +35,7 @@ public class SimulationEngine implements TrafficEventPublisher {
     private final SimulationClock clock = new SimulationClock();
     private final List<TrafficObserver> observers = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final List<SimulationSnapshot.SavedVehicle> vehiclesToRestore = new CopyOnWriteArrayList<>();
 
     private ExecutorService executor;
     private VehicleSpawner spawner;
@@ -67,6 +69,15 @@ public class SimulationEngine implements TrafficEventPublisher {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    /** Queues unfinished snapshot vehicles to restart from their origins on Start. */
+    public void restoreVehicles(List<SimulationSnapshot.SavedVehicle> vehicles) {
+        if (running.get()) {
+            throw new SimulationStateException("cannot restore vehicles while the simulation is running");
+        }
+        vehiclesToRestore.clear();
+        vehiclesToRestore.addAll(vehicles);
     }
 
     /** immediately spawns a car with a random route while the simulation is running. */
@@ -114,6 +125,19 @@ public class SimulationEngine implements TrafficEventPublisher {
         mover = new VehicleMover(cityMap, this, statistics, clock);
         adaptiveController = new AdaptiveSignalController(cityMap, this);
 
+        for (SimulationSnapshot.SavedVehicle saved : vehiclesToRestore) {
+            try {
+                spawner.restoreVehicle(saved);
+            } catch (InvalidRouteException | IllegalArgumentException e) {
+                publishMessage("could not restore a " + saved.type() + ": " + e.getMessage());
+            }
+        }
+        if (!vehiclesToRestore.isEmpty()) {
+            publishMessage("restarted " + vehiclesToRestore.size()
+                    + " unfinished snapshot vehicles from their origins");
+            vehiclesToRestore.clear();
+        }
+
         submitNamed(spawner, "vehicle-spawner");
         submitNamed(mover, "vehicle-mover");
         submitNamed(adaptiveController, "adaptive-signal-controller");
@@ -158,6 +182,13 @@ public class SimulationEngine implements TrafficEventPublisher {
     public void publishVehicleSpawned(Vehicle vehicle) {
         for (TrafficObserver observer : observers) {
             observer.onVehicleSpawned(vehicle);
+        }
+    }
+
+    @Override
+    public void publishVehicleRestored(Vehicle vehicle) {
+        for (TrafficObserver observer : observers) {
+            observer.onVehicleRestored(vehicle);
         }
     }
 
