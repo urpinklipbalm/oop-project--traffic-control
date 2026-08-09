@@ -1,6 +1,7 @@
 package com.trafficcontrol.gui;
 
 import com.trafficcontrol.engine.SimulationEngine;
+import com.trafficcontrol.engine.SimulationEngine.TrafficVolume;
 import com.trafficcontrol.exceptions.InvalidRouteException;
 import com.trafficcontrol.exceptions.SimulationStateException;
 import com.trafficcontrol.model.Direction;
@@ -42,6 +43,11 @@ import java.awt.event.WindowEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * the dashboard window: Start/Stop controls, the live animated city map,
@@ -56,6 +62,9 @@ public class MainFrame extends JFrame implements TrafficObserver {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
+    // Add any new city-map CSV to this directory; the Load City menu discovers it automatically.
+    private static final Path CITY_MAP_DIRECTORY = Path.of("src/main/resources/maps");
+
     private SimulationEngine engine;
     private CityPanel cityPanel;
     private final TrafficObserver persistentObserver;
@@ -66,6 +75,9 @@ public class MainFrame extends JFrame implements TrafficObserver {
     private final JButton stopButton = new JButton("Stop Simulation");
     private final JButton spawnCarButton = new JButton("Spawn Custom Car");
     private final JLabel statusLabel = new JLabel("Stopped");
+    private final JComboBox<String> vehicleSpeedBox = new JComboBox<>(
+            new String[]{"1x", "2x", "4x", "8x", "12x", "20x"});
+    private final JComboBox<TrafficVolume> trafficVolumeBox = new JComboBox<>(TrafficVolume.values());
     private int nextManualCarNumber = 1;
 
     public MainFrame(SimulationEngine engine) {
@@ -77,6 +89,8 @@ public class MainFrame extends JFrame implements TrafficObserver {
         this.engine = engine;
         this.persistentObserver = persistentObserver;
         this.cityPanel = new CityPanel(engine);
+        vehicleSpeedBox.setSelectedItem(formatSpeed(engine.getClock().getSpeedFactor()));
+        trafficVolumeBox.setSelectedItem(engine.getTrafficVolume());
 
         attachObservers();
 
@@ -111,8 +125,7 @@ public class MainFrame extends JFrame implements TrafficObserver {
     private JMenuBar buildMenuBar() {
         JMenuBar menuBar = new JMenuBar();
         JMenu fileMenu = new JMenu("File");
-        fileMenu.add(menuItem("Load City Map...", this::loadCityMap));
-        fileMenu.add(menuItem("Save City Map As...", this::saveCityMap));
+        fileMenu.add(buildCityMenu());
         fileMenu.addSeparator();
         fileMenu.add(menuItem("Load Snapshot...", this::loadSnapshot));
         fileMenu.add(menuItem("Save Snapshot As...", this::saveSnapshot));
@@ -120,6 +133,46 @@ public class MainFrame extends JFrame implements TrafficObserver {
         fileMenu.add(menuItem("Export Statistics...", this::exportStatistics));
         menuBar.add(fileMenu);
         return menuBar;
+    }
+
+    private JMenu buildCityMenu() {
+        JMenu cityMenu = new JMenu("Load City");
+        List<Path> cityFiles;
+        try (var files = Files.list(CITY_MAP_DIRECTORY)) {
+            cityFiles = files
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".csv"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        } catch (IOException e) {
+            JMenuItem unavailable = new JMenuItem("Maps directory unavailable");
+            unavailable.setEnabled(false);
+            cityMenu.add(unavailable);
+            return cityMenu;
+        }
+
+        for (Path cityFile : cityFiles) {
+            cityMenu.add(menuItem(cityDisplayName(cityFile), () -> loadCityMap(cityFile)));
+        }
+        if (cityFiles.isEmpty()) {
+            JMenuItem empty = new JMenuItem("No city maps found");
+            empty.setEnabled(false);
+            cityMenu.add(empty);
+        }
+        return cityMenu;
+    }
+
+    private String cityDisplayName(Path cityFile) {
+        String filename = cityFile.getFileName().toString().replaceFirst("(?i)\\.csv$", "");
+        String[] words = filename.split("[-_]");
+        StringBuilder displayName = new StringBuilder();
+        for (String word : words) {
+            if (!word.isEmpty()) {
+                if (!displayName.isEmpty()) displayName.append(' ');
+                displayName.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+            }
+        }
+        return displayName.toString();
     }
 
     private JMenuItem menuItem(String label, Runnable action) {
@@ -152,28 +205,13 @@ public class MainFrame extends JFrame implements TrafficObserver {
         return chooser;
     }
 
-    private void loadCityMap() {
+    private void loadCityMap(Path cityFile) {
         if (!requireStoppedForLoad()) return;
-        JFileChooser chooser = csvChooser("Load City Map");
-        chooser.setCurrentDirectory(new File("src/main/resources/maps"));
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         try {
-            replaceEngine(new SimulationEngine(persistence.loadCityMap(chooser.getSelectedFile().getPath())));
-            appendLine("loaded city map: " + chooser.getSelectedFile().getName());
+            replaceEngine(new SimulationEngine(persistence.loadCityMap(cityFile.toString())));
+            appendLine("loaded city map: " + cityDisplayName(cityFile));
         } catch (CityMapLoadException | IllegalArgumentException e) {
             showPersistenceError("Could not load city map", e);
-        }
-    }
-
-    private void saveCityMap() {
-        JFileChooser chooser = csvChooser("Save City Map");
-        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-        File file = ensureCsvExtension(chooser.getSelectedFile());
-        try {
-            persistence.saveCityMap(engine.getCityMap(), file.getPath());
-            appendLine("saved city map: " + file.getName());
-        } catch (CityMapLoadException e) {
-            showPersistenceError("Could not save city map", e);
         }
     }
 
@@ -222,6 +260,8 @@ public class MainFrame extends JFrame implements TrafficObserver {
     }
 
     private void replaceEngine(SimulationEngine replacement) {
+        String selectedSpeed = (String) vehicleSpeedBox.getSelectedItem();
+        TrafficVolume selectedVolume = (TrafficVolume) trafficVolumeBox.getSelectedItem();
         engine.removeObserver(this);
         engine.removeObserver(cityPanel);
         if (persistentObserver != null) engine.removeObserver(persistentObserver);
@@ -229,6 +269,10 @@ public class MainFrame extends JFrame implements TrafficObserver {
         mapContainer.remove(cityPanel);
 
         engine = replacement;
+        if (selectedSpeed != null) {
+            engine.getClock().setSpeedFactor(parseSpeed(selectedSpeed));
+        }
+        if (selectedVolume != null) engine.setTrafficVolume(selectedVolume);
         cityPanel = new CityPanel(engine);
         attachObservers();
         mapContainer.add(cityPanel, BorderLayout.CENTER);
@@ -267,7 +311,41 @@ public class MainFrame extends JFrame implements TrafficObserver {
         toolbar.add(statusLabel);
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         toolbar.add(spawnCarButton);
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolbar.add(new JLabel("Vehicle Speed:"));
+        vehicleSpeedBox.setToolTipText(
+                "Changes road travel speed only; traffic lights and spawn frequency stay unchanged.");
+        vehicleSpeedBox.addActionListener(e -> applyVehicleSpeed());
+        toolbar.add(vehicleSpeedBox);
+        toolbar.add(new JLabel("Traffic Volume:"));
+        trafficVolumeBox.setToolTipText(
+                "Changes automatic spawn frequency only; vehicle road speed stays unchanged.");
+        trafficVolumeBox.addActionListener(e -> applyTrafficVolume());
+        toolbar.add(trafficVolumeBox);
         return toolbar;
+    }
+
+    private void applyVehicleSpeed() {
+        String selected = (String) vehicleSpeedBox.getSelectedItem();
+        if (selected == null) return;
+        engine.getClock().setSpeedFactor(parseSpeed(selected));
+        appendLine("vehicle speed changed to " + selected
+                + " (lights and spawn frequency unchanged)");
+    }
+
+    private void applyTrafficVolume() {
+        TrafficVolume volume = (TrafficVolume) trafficVolumeBox.getSelectedItem();
+        if (volume == null) return;
+        engine.setTrafficVolume(volume);
+        appendLine("traffic volume changed to " + volume + " (vehicle speed unchanged)");
+    }
+
+    private double parseSpeed(String displayedSpeed) {
+        return Double.parseDouble(displayedSpeed.substring(0, displayedSpeed.length() - 1));
+    }
+
+    private String formatSpeed(double factor) {
+        return Math.round(factor) + "x";
     }
 
     private JComponent buildLogPanel() {

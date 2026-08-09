@@ -30,12 +30,35 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SimulationEngine implements TrafficEventPublisher {
 
+    public enum TrafficVolume {
+        LIGHT("Light", 1.8), NORMAL("Normal", 1.0),
+        BUSY("Busy", 0.55), RUSH_HOUR("Rush Hour", 0.30);
+
+        private final String label;
+        private final double intervalMultiplier;
+
+        TrafficVolume(String label, double intervalMultiplier) {
+            this.label = label;
+            this.intervalMultiplier = intervalMultiplier;
+        }
+
+        public double getIntervalMultiplier() {
+            return intervalMultiplier;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
     private final CityMap cityMap;
     private final SimulationStatistics statistics = new SimulationStatistics();
     private final SimulationClock clock = new SimulationClock();
     private final List<TrafficObserver> observers = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final List<SimulationSnapshot.SavedVehicle> vehiclesToRestore = new CopyOnWriteArrayList<>();
+    private volatile TrafficVolume trafficVolume = TrafficVolume.NORMAL;
 
     private ExecutorService executor;
     private VehicleSpawner spawner;
@@ -69,6 +92,18 @@ public class SimulationEngine implements TrafficEventPublisher {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    public TrafficVolume getTrafficVolume() {
+        return trafficVolume;
+    }
+
+    /** Changes automatic spawn frequency without changing vehicle motion speed. */
+    public void setTrafficVolume(TrafficVolume trafficVolume) {
+        this.trafficVolume = trafficVolume;
+        if (spawner != null) {
+            spawner.setSpawnIntervalMultiplier(trafficVolume.getIntervalMultiplier());
+        }
     }
 
     /** Queues unfinished snapshot vehicles to restart from their origins on Start. */
@@ -122,6 +157,7 @@ public class SimulationEngine implements TrafficEventPublisher {
         }
 
         spawner = new VehicleSpawner(cityMap, this, statistics);
+        spawner.setSpawnIntervalMultiplier(trafficVolume.getIntervalMultiplier());
         mover = new VehicleMover(cityMap, this, statistics, clock);
         adaptiveController = new AdaptiveSignalController(cityMap, this);
 

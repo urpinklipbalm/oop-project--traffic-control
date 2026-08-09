@@ -34,6 +34,7 @@ public class VehicleSpawner implements Runnable {
     private final TrafficEventPublisher publisher;
     private final SimulationStatistics statistics;
     private volatile boolean running = true;
+    private volatile double spawnIntervalMultiplier = 1.0;
 
     public VehicleSpawner(CityMap cityMap, TrafficEventPublisher publisher, SimulationStatistics statistics) {
         this.cityMap = cityMap;
@@ -51,7 +52,9 @@ public class VehicleSpawner implements Runnable {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
                 spawnOne(ids);
-                Thread.sleep(ThreadLocalRandom.current().nextLong(MIN_SPAWN_INTERVAL_MILLIS, MAX_SPAWN_INTERVAL_MILLIS));
+                long baseInterval = ThreadLocalRandom.current()
+                        .nextLong(MIN_SPAWN_INTERVAL_MILLIS, MAX_SPAWN_INTERVAL_MILLIS);
+                Thread.sleep(Math.max(100, Math.round(baseInterval * spawnIntervalMultiplier)));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (InvalidRouteException e) {
@@ -161,5 +164,9 @@ public class VehicleSpawner implements Runnable {
 
     public void stop() {
         running = false;
+    }
+
+    public void setSpawnIntervalMultiplier(double multiplier) {
+        spawnIntervalMultiplier = Math.max(0.1, multiplier);
     }
 }
