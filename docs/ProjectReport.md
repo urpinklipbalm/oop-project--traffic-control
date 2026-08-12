@@ -3,9 +3,14 @@
 CS-212 Object Oriented Programming, Summer 2026. Domain: Traffic Control
 in a Smart City.
 
-*This is a living document - update it as you build your part, not all
-at once at the end. Convert to `ProjectReport.pdf` for the final
-submission zip (see "Converting to PDF" at the bottom).*
+*This file was the working draft used while building the project
+section by section. The finished, submission-ready report is
+[`ProjectReport.docx`](../ProjectReport.docx) in the project root - it
+supersedes this file and is the one to convert/submit as
+`ProjectReport.pdf`. This draft is kept for reference on how the report
+evolved alongside the code; the remaining sections below just point at
+where each topic ended up in the final document instead of duplicating
+it.*
 
 ## 1. Introduction
 
@@ -149,12 +154,10 @@ read is not even guaranteed atomic (JLS 17.7). Pairing them into one
 immutable `RoadPlacement` behind a single `volatile` reference means a
 reader always sees a consistent pair.
 
-**Challenges faced:** *[fill in anything that was genuinely tricky - e.g.
-getting the preemption wake-up right without missing a signal, or tuning
-tick intervals so the simulation is visibly active without spawning
-vehicles faster than they can be processed. The race above is worth
-writing up properly - it is a good example of a bug that only appeared
-once a second component started reading shared state.]*
+**Challenges faced:** covered in full in `ProjectReport.docx` section
+6.3 - the `RoadPlacement` race described above, plus a second race (the
+traffic-light restart bug, `TrafficLight.prepareForStart()`) found once
+the GUI could stop and restart the same engine.
 
 ## 5. File Handling
 
@@ -269,17 +272,20 @@ totals without loss.
 
 *(Owner: Nameer Ahmed - see [`docs/TODO_Nameer.md`](TODO_Nameer.md).)*
 
-*[Fill in: layout decisions, how `CityPanel` renders/animates vehicles,
-styling choices on top of FlatLaf, anything tricky about painting on a
-timer vs. reacting to observer callbacks. Screenshots of the final
-dashboard belong here.]*
+Covered in full in `ProjectReport.docx`, sections 2.1, 4.5, and 9 (the
+`MainFrame` toolbar/menu bar, why `ControlPanel`/`StatisticsPanel` were
+absorbed into `MainFrame` instead of built as separate classes, and the
+dashboard controls that were added: speed slider, traffic volume,
+manual/custom car spawning, load city / save+load snapshot / export
+statistics).
 
 ## 7. Challenges Faced (project-wide)
 
-*[Fill in as they come up - e.g. environment setup differences across
-3 machines, a design decision that had to be revisited once a teammate
-started building against an interface, anything about getting the three
-parts integrated.]*
+Covered in `ProjectReport.docx` section 6.3 (the two concurrency races
+found and fixed) and section 10 (how GUI work needed more reach into
+`engine/` than originally planned - `setTrafficVolume`, `spawnCar`,
+`restoreVehicles`, and the traffic-light restart fix - and how that was
+handled without blocking on the task division).
 
 ## 8. Task Division
 
@@ -292,18 +298,14 @@ real dashboard on top of the `TrafficObserver` interface.
 
 ## 9. Testing / Verification
 
-*[Fill in: how each part was verified - the repo owner's engine was
-smoke-tested headlessly (start the simulation, run it for N seconds,
-confirm vehicles are spawned/arrive/stats update, confirm clean thread
-shutdown) before the gui was wired in. Ayesha and Nameer should record
-how they verified their parts - e.g. loading a deliberately malformed
-CSV and confirming a clean `CityMapLoadException` rather than a crash;
-resizing the gui window and confirming nothing clips.]*
+Covered in full in `ProjectReport.docx` section 11: `SmokeTest.java`'s
+headless verification criteria, plus manual verification of malformed-CSV
+handling, snapshot save/load round-tripping, window resizing, and
+repeated start/stop/reload cycles.
 
 ## 10. Conclusion
 
-*[Fill in once the project is complete - what you'd do differently, what
-you're proud of.]*
+Covered in full in `ProjectReport.docx` section 12.
 
 ---
 

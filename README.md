@@ -29,10 +29,10 @@ why it's built this way.
 | OOP Principles | done - abstract `Vehicle` + 4 subclasses, interfaces (`TrafficObserver`, `TrafficEventPublisher`, `PersistenceService`), encapsulated shared state throughout `model/` |
 | Concurrency & Synchronization | done - see `engine/` and `model/TrafficLight.java` / `model/Intersection.java` |
 | Logic & Efficiency | done - BFS routing (`CityMap.getRoute`), load-adaptive signal timing (`AdaptiveSignalController`) |
-| User Interface | partial - live animated city map (`gui/CityPanel`) with moving vehicles, signal states, queues and emergency-preemption flashes, plus Start/Stop and an event log. Control and statistics panels still to come. **Nameer:** [`docs/TODO_Nameer.md`](docs/TODO_Nameer.md) |
-| File Handling | partial - `EventLogger` (event log to disk) is done; CSV map loading, snapshots, stats export are not. **Ayesha:** [`docs/TODO_Ayesha.md`](docs/TODO_Ayesha.md) |
-| IDE & Version Control | ongoing - small scoped commits, see `git log` |
-| Ethics & Teamwork | ongoing - [`docs/TASK_DIVISION.md`](docs/TASK_DIVISION.md), fill in [`docs/ProjectReport.md`](docs/ProjectReport.md) as you go, don't leave it to the last night |
+| User Interface | done - live animated city map (`gui/CityPanel`) with moving vehicles, signal states, queues and emergency-preemption flashes, plus `MainFrame`'s Start/Stop, vehicle speed and traffic volume controls, manual/custom car spawning, and a File menu (load city / save+load snapshot / export statistics). The originally-planned separate `ControlPanel`/`StatisticsPanel` classes were absorbed into `MainFrame`'s toolbar and menu bar instead - see `ProjectReport.docx` section 9. **Nameer:** [`docs/TODO_Nameer.md`](docs/TODO_Nameer.md) |
+| File Handling | done - `persistence.PersistenceService` implemented by `CsvCityMapLoader`: CSV city map load/save, statistics export, and snapshot save/resume, plus `EventLogger` (event log to disk). **Ayesha:** [`docs/TODO_Ayesha.md`](docs/TODO_Ayesha.md) |
+| IDE & Version Control | done - small scoped commits, see `git log` |
+| Ethics & Teamwork | done - [`docs/TASK_DIVISION.md`](docs/TASK_DIVISION.md); final report is [`ProjectReport.docx`](ProjectReport.docx) |
 
 ## Building and running
 
@@ -58,10 +58,11 @@ breakdown. Short version:
 - `engine/` - `SimulationEngine` and its worker threads
 - `observer/` - the `TrafficObserver` / `TrafficEventPublisher`
   interfaces everything else plugs into
-- `persistence/` - file handling (`EventLogger` is done; the real
-  CSV-backed `PersistenceService` implementation is Ayesha's part)
-- `gui/` - the Swing UI: `MainFrame` (window + controls) and `CityPanel`
-  (the animated map). The control and statistics panels are Nameer's part
+- `persistence/` - file handling: `EventLogger` (event log to disk) and
+  `CsvCityMapLoader` (implements `PersistenceService` - CSV city map
+  load/save, statistics export, snapshot save/resume)
+- `gui/` - the Swing UI: `MainFrame` (window, toolbar, menu bar, and all
+  dashboard controls) and `CityPanel` (the animated map)
 - `exceptions/` - custom checked/unchecked exceptions
 - `docs/` - architecture notes, UML, task lists, the project report
 
