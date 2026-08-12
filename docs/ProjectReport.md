@@ -43,13 +43,56 @@ diagram. Summary of the major design decisions:
 
 ### How the UML evolved during coding
 
-*[Fill this in as the project progresses - what changed between the
-first draft of the class diagram and what's actually in the code, and
-why. Some likely candidates worth recording if they happen: whether
-`TrafficLight` stayed one-per-intersection vs. one-per-direction, how
-`PersistenceService`'s method signatures changed once Ayesha actually
-implemented against them, any classes that got merged/split once the gui
-was built.]*
+`TrafficLight` stayed one-per-intersection controlling both axes
+together, as originally drawn - it never split into one light per
+direction.
+
+The biggest change is `PersistenceService`: the first draft only
+sketched the interface (`loadCityMap`/`saveCityMap`/`exportStatistics`)
+with `DefaultCityMapFactory` as a hardcoded stand-in, since no
+implementation existed yet. `CsvCityMapLoader` now implements that
+interface against the CSV format documented in
+`default-city.csv`, and grew two extra methods
+(`loadSnapshot`/`saveSnapshot`) that were never part of the original
+interface - save/resume needs to round-trip `SimulationStatistics`
+totals and in-flight vehicles alongside the map, which is a different
+contract from the plain load/save/export the interface promises, so
+those stayed as extra public methods on the concrete class instead of
+widening the interface for every future implementation.
+`DefaultCityMapFactory` is unused by `Main` now but was kept in the
+codebase (marked legacy) rather than deleted, since it's still handy for
+quick manual testing without a CSV file.
+
+Save/resume also introduced two classes not in the first draft:
+`SimulationSnapshot` (an immutable holder for a loaded city map plus the
+statistics totals and unfinished-vehicle list captured at save time) and
+its nested `SavedVehicle` record (type/origin/destination/label - enough
+to recreate a vehicle from its origin, since exact mid-road progress and
+light phases aren't persisted). `SimulationEngine.restoreVehicles()` and
+`VehicleSpawner.restoreVehicle()` exist specifically to consume that
+list on the next `start()`.
+
+`SimulationClock` was added once the gui's speed control landed - it
+wasn't part of the original design, which assumed vehicles would just
+move at their raw `getSpeedMetersPerSecond()`. Scaling *only* vehicle
+motion (not traffic-light timing) needed a single shared, mutable,
+thread-safe factor that both the mover and the gui could reach, so it
+became its own small class rather than a field bolted onto
+`SimulationEngine`.
+
+`TrafficObserver`/`TrafficEventPublisher` grew one more callback pair
+(`onVehicleRestored`/`publishVehicleRestored`) once snapshot restore
+existed, so the gui and the event log can tell a genuinely new spawn
+apart from a vehicle being recreated from a save file, without
+duplicating the rest of the spawn-handling logic.
+
+No classes were merged or split once the gui was built - `MainFrame` and
+`CityPanel` matched the original split (dashboard chrome vs. the
+animated map) throughout. `MainFrame` did pick up more state than
+originally sketched (the toolbar's speed/volume controls, the city-map
+file chooser wiring) as those features landed, but the diagram only
+shows the fields central to its role as `SimulationEngine`'s controller
+- see the class itself for the full field list.
 
 ## 3. OOP Principles
 

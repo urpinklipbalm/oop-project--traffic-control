@@ -6,18 +6,24 @@
 
 abstract class Vehicle {
   -id: String
+  -customLabel: String
   -route: List<Intersection>
   -routeIndex: int
   -travelState: TravelState
-  -currentRoad: Road
+  -placement: RoadPlacement
+  -cumulativeWaitMillis: long
   +getPriority(): int
   +getSpeedMetersPerSecond(): double
   +getColor(): Color
   +getTypeName(): String
+  +getCustomLabel(): String
   +advanceToNextIntersection()
   +isAtDestination(): boolean
   +enterRoad(Road, long)
-  +hasFinishedCurrentRoad(long): boolean
+  +hasFinishedCurrentRoad(long, double): boolean
+  +getProgressAlongRoad(long, double): double
+  +startWaiting(long)
+  +addWaitTime(long)
 }
 class Car
 class Bus
@@ -46,6 +52,7 @@ enum LightPhase {
   EW_YELLOW
   ALL_RED
   +isGreenFor(Direction): boolean
+  +isYellowFor(Direction): boolean
 }
 
 class Position {
@@ -60,19 +67,26 @@ class Road {
   -lengthMeters: double
   -lanes: int
   -approachDirection: Direction
+  -vehiclesOnRoad: List<Vehicle>
   +getTravelTimeMillis(double): long
   +getCongestionRatio(): double
+  +addVehicle(Vehicle)
+  +removeVehicle(Vehicle)
 }
 
 class TrafficLight implements Runnable {
   -intersectionId: String
   -phase: LightPhase
   -preemptRequested: boolean
+  -nsGreenMillis: long
+  -ewGreenMillis: long
   +run()
   +preempt(Direction)
   +isGreenFor(Direction): boolean
   +setNsGreenDurationMillis(long)
   +setEwGreenDurationMillis(long)
+  +prepareForStart()
+  +stop()
 }
 
 class Intersection {
@@ -80,13 +94,17 @@ class Intersection {
   -position: Position
   -trafficLight: TrafficLight
   -queues: Map<Direction, Deque<Vehicle>>
+  -queueLock: ReentrantLock
   +enqueue(Direction, Vehicle)
-  +tryDequeue(Direction): Vehicle
+  +tryDequeue(Direction, long): Vehicle
   +getQueueLength(Direction): int
+  +getQueuedVehicles(Direction): List<Vehicle>
+  +getTotalQueueLength(): int
 }
 
 class CityMap {
   -intersections: Map<String, Intersection>
+  -adjacency: Map<String, Map<String, Road>>
   -roads: List<Road>
   +addIntersection(Intersection)
   +addRoad(Road)
@@ -103,6 +121,7 @@ Vehicle --> "0..1" Road : currentRoad
 
 interface TrafficEventPublisher {
   +publishVehicleSpawned(Vehicle)
+  +publishVehicleRestored(Vehicle)
   +publishVehicleArrived(Vehicle, long, long)
   +publishLightPhaseChanged(String, LightPhase)
   +publishPreemption(String, Direction)
@@ -111,28 +130,67 @@ interface TrafficEventPublisher {
 
 interface TrafficObserver {
   +onVehicleSpawned(Vehicle)
+  +onVehicleRestored(Vehicle)
   +onVehicleArrived(Vehicle, long, long)
   +onLightPhaseChanged(String, LightPhase)
   +onPreemption(String, Direction)
   +onSimulationMessage(String)
 }
 
+class SimulationClock {
+  -speedFactor: double
+  +getSpeedFactor(): double
+  +setSpeedFactor(double)
+}
+
+enum TrafficVolume {
+  LIGHT
+  NORMAL
+  BUSY
+  RUSH_HOUR
+  +getIntervalMultiplier(): double
+}
+
 class SimulationEngine implements TrafficEventPublisher {
   -cityMap: CityMap
   -statistics: SimulationStatistics
+  -clock: SimulationClock
   -observers: List<TrafficObserver>
   -executor: ExecutorService
+  -running: AtomicBoolean
+  -trafficVolume: TrafficVolume
   +start()
   +stop()
   +addObserver(TrafficObserver)
+  +removeObserver(TrafficObserver)
+  +setTrafficVolume(TrafficVolume)
+  +spawnCar(): Vehicle
+  +spawnCar(String, String, String): Vehicle
+  +restoreVehicles(List<SavedVehicle>)
 }
 SimulationEngine o-- "many" TrafficObserver : notifies
 SimulationEngine *-- CityMap
 SimulationEngine *-- SimulationStatistics
+SimulationEngine *-- SimulationClock
+SimulationEngine +-- TrafficVolume : nested enum
 
-class VehicleSpawner implements Runnable
-class VehicleMover implements Runnable
-class AdaptiveSignalController implements Runnable
+class VehicleSpawner implements Runnable {
+  -spawnIntervalMultiplier: double
+  +run()
+  +spawnCarNow(): Vehicle
+  +spawnCarNow(String, String, String): Vehicle
+  +restoreVehicle(SavedVehicle): Vehicle
+  +setSpawnIntervalMultiplier(double)
+  +stop()
+}
+class VehicleMover implements Runnable {
+  +run()
+  +stop()
+}
+class AdaptiveSignalController implements Runnable {
+  +run()
+  +stop()
+}
 SimulationEngine *-- VehicleSpawner
 SimulationEngine *-- VehicleMover
 SimulationEngine *-- AdaptiveSignalController
@@ -141,9 +199,12 @@ class SimulationStatistics {
   -vehiclesSpawned: AtomicLong
   -vehiclesArrived: AtomicLong
   -totalWaitTimeMillis: AtomicLong
+  -totalTravelTimeMillis: AtomicLong
   +recordSpawn()
   +recordArrival(long, long)
+  +restore(long, long, double, double)
   +getAverageWaitTimeMillis(): double
+  +getAverageTravelTimeMillis(): double
 }
 
 interface PersistenceService {
@@ -151,36 +212,76 @@ interface PersistenceService {
   +saveCityMap(CityMap, String)
   +exportStatistics(SimulationStatistics, String)
 }
-note right of PersistenceService : owned by Ayesha - see TODO_Ayesha.md
+
+class CsvCityMapLoader implements PersistenceService {
+  +loadCityMap(String): CityMap
+  +saveCityMap(CityMap, String)
+  +exportStatistics(SimulationStatistics, String)
+  +loadSnapshot(String): SimulationSnapshot
+  +saveSnapshot(CityMap, SimulationStatistics, String)
+}
+CsvCityMapLoader ..> CityMap : creates
+CsvCityMapLoader ..> SimulationSnapshot : creates
+
+class SimulationSnapshot {
+  -cityMap: CityMap
+  -vehiclesSpawned: long
+  -vehiclesArrived: long
+  -averageWaitTimeMillis: double
+  -averageTravelTimeMillis: double
+  -unfinishedVehicles: List<SavedVehicle>
+  +getCityMap(): CityMap
+  +getUnfinishedVehicles(): List<SavedVehicle>
+}
+class SavedVehicle << record >> {
+  +type: String
+  +originId: String
+  +destinationId: String
+  +customLabel: String
+}
+SimulationSnapshot +-- SavedVehicle : nested record
+SimulationSnapshot *-- CityMap
 
 class EventLogger implements TrafficObserver {
   -writer: BufferedWriter
   +close()
 }
 
-class DefaultCityMapFactory {
+class DefaultCityMapFactory <<utility, legacy>> {
   +{static} createDefaultGrid(): CityMap
 }
-note right of DefaultCityMapFactory : temporary bootstrap,\nreplaced once PersistenceService\nhas a real CSV loader
+note right of DefaultCityMapFactory : superseded by CsvCityMapLoader;\nkept for reference/tests only
+DefaultCityMapFactory ..> CityMap : builds
 
 class MainFrame implements TrafficObserver {
   -engine: SimulationEngine
   -cityPanel: CityPanel
+  -persistence: CsvCityMapLoader
   -eventLog: JTextArea
+  +startSimulation()
+  +stopSimulation()
+  +spawnCar()
+  +loadCityMap(Path)
+  +saveSnapshot()
+  +loadSnapshot()
+  +exportStatistics()
 }
 MainFrame --> SimulationEngine : controls
+MainFrame ..> CsvCityMapLoader : uses
 
 class CityPanel implements TrafficObserver {
   -engine: SimulationEngine
   -incomingRoads: Map<Intersection, Map<Direction, Road>>
   -lastPreemption: Map<String, Long>
+  -labeledVehicles: Map<String, Vehicle>
   +paintComponent(Graphics)
+  +disposePanel()
 }
 note right of CityPanel : the animated map - repaints on a\nswing Timer, reads simulation state\nonly, never writes back
 MainFrame *-- CityPanel
 
-class InvalidRouteException
-class CityMapLoadException
-class SimulationStateException
+class InvalidRouteException <<checked>>
+class CityMapLoadException <<checked>>
+class SimulationStateException <<unchecked>>
 
 @enduml

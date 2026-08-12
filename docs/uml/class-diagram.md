@@ -20,18 +20,24 @@ classDiagram
     class Vehicle {
         <<abstract>>
         -String id
+        -String customLabel
         -List~Intersection~ route
         -int routeIndex
         -TravelState travelState
-        -Road currentRoad
+        -RoadPlacement placement
+        -long cumulativeWaitMillis
         +getPriority() int*
         +getSpeedMetersPerSecond() double*
         +getColor() Color*
         +getTypeName() String*
+        +getCustomLabel() String
         +advanceToNextIntersection()
         +isAtDestination() boolean
         +enterRoad(Road, long)
-        +hasFinishedCurrentRoad(long) boolean
+        +hasFinishedCurrentRoad(long, double) boolean
+        +getProgressAlongRoad(long, double) double
+        +startWaiting(long)
+        +addWaitTime(long)
     }
     class Car
     class Bus
@@ -62,6 +68,7 @@ classDiagram
         EW_YELLOW
         ALL_RED
         +isGreenFor(Direction) boolean
+        +isYellowFor(Direction) boolean
     }
 
     class Position {
@@ -79,6 +86,8 @@ classDiagram
         -List~Vehicle~ vehiclesOnRoad
         +getTravelTimeMillis(double) long
         +getCongestionRatio() double
+        +addVehicle(Vehicle)
+        +removeVehicle(Vehicle)
     }
 
     class TrafficLight {
@@ -86,11 +95,15 @@ classDiagram
         -String intersectionId
         -LightPhase phase
         -boolean preemptRequested
+        -long nsGreenMillis
+        -long ewGreenMillis
         +run()
         +preempt(Direction)
         +isGreenFor(Direction) boolean
         +setNsGreenDurationMillis(long)
         +setEwGreenDurationMillis(long)
+        +prepareForStart()
+        +stop()
     }
 
     class Intersection {
@@ -98,13 +111,17 @@ classDiagram
         -Position position
         -TrafficLight trafficLight
         -Map~Direction, Deque~Vehicle~~ queues
+        -ReentrantLock queueLock
         +enqueue(Direction, Vehicle)
-        +tryDequeue(Direction) Vehicle
+        +tryDequeue(Direction, long) Vehicle
         +getQueueLength(Direction) int
+        +getQueuedVehicles(Direction) List~Vehicle~
+        +getTotalQueueLength() int
     }
 
     class CityMap {
         -Map~String, Intersection~ intersections
+        -Map~String, Map~String, Road~~ adjacency
         -List~Road~ roads
         +addIntersection(Intersection)
         +addRoad(Road)
@@ -122,6 +139,7 @@ classDiagram
     class TrafficEventPublisher {
         <<interface>>
         +publishVehicleSpawned(Vehicle)
+        +publishVehicleRestored(Vehicle)
         +publishVehicleArrived(Vehicle, long, long)
         +publishLightPhaseChanged(String, LightPhase)
         +publishPreemption(String, Direction)
@@ -131,37 +149,71 @@ classDiagram
     class TrafficObserver {
         <<interface>>
         +onVehicleSpawned(Vehicle)
+        +onVehicleRestored(Vehicle)
         +onVehicleArrived(Vehicle, long, long)
         +onLightPhaseChanged(String, LightPhase)
         +onPreemption(String, Direction)
         +onSimulationMessage(String)
     }
 
+    class SimulationClock {
+        -double speedFactor
+        +getSpeedFactor() double
+        +setSpeedFactor(double)
+    }
+
+    class TrafficVolume {
+        <<enumeration>>
+        LIGHT
+        NORMAL
+        BUSY
+        RUSH_HOUR
+        +getIntervalMultiplier() double
+    }
+
     class SimulationEngine {
         -CityMap cityMap
         -SimulationStatistics statistics
+        -SimulationClock clock
         -List~TrafficObserver~ observers
         -ExecutorService executor
+        -AtomicBoolean running
+        -TrafficVolume trafficVolume
         +start()
         +stop()
         +addObserver(TrafficObserver)
+        +removeObserver(TrafficObserver)
+        +setTrafficVolume(TrafficVolume)
+        +spawnCar() Vehicle
+        +spawnCar(String, String, String) Vehicle
+        +restoreVehicles(List~SavedVehicle~)
     }
     SimulationEngine ..|> TrafficEventPublisher : implements
     SimulationEngine "1" o-- "many" TrafficObserver : notifies
     SimulationEngine "1" *-- "1" CityMap
     SimulationEngine "1" *-- "1" SimulationStatistics
+    SimulationEngine "1" *-- "1" SimulationClock
+    SimulationEngine "1" *-- "1" TrafficVolume : nested enum
 
     class VehicleSpawner {
         <<Runnable>>
+        -double spawnIntervalMultiplier
         +run()
+        +spawnCarNow() Vehicle
+        +spawnCarNow(String, String, String) Vehicle
+        +restoreVehicle(SavedVehicle) Vehicle
+        +setSpawnIntervalMultiplier(double)
+        +stop()
     }
     class VehicleMover {
         <<Runnable>>
         +run()
+        +stop()
     }
     class AdaptiveSignalController {
         <<Runnable>>
         +run()
+        +stop()
     }
     SimulationEngine "1" *-- "1" VehicleSpawner
     SimulationEngine "1" *-- "1" VehicleMover
@@ -171,9 +223,12 @@ classDiagram
         -AtomicLong vehiclesSpawned
         -AtomicLong vehiclesArrived
         -AtomicLong totalWaitTimeMillis
+        -AtomicLong totalTravelTimeMillis
         +recordSpawn()
         +recordArrival(long, long)
+        +restore(long, long, double, double)
         +getAverageWaitTimeMillis() double
+        +getAverageTravelTimeMillis() double
     }
 
     class PersistenceService {
@@ -183,6 +238,37 @@ classDiagram
         +exportStatistics(SimulationStatistics, String)
     }
 
+    class CsvCityMapLoader {
+        +loadCityMap(String) CityMap
+        +saveCityMap(CityMap, String)
+        +exportStatistics(SimulationStatistics, String)
+        +loadSnapshot(String) SimulationSnapshot
+        +saveSnapshot(CityMap, SimulationStatistics, String)
+    }
+    CsvCityMapLoader ..|> PersistenceService : implements
+    CsvCityMapLoader ..> CityMap : creates
+    CsvCityMapLoader ..> SimulationSnapshot : creates
+
+    class SimulationSnapshot {
+        -CityMap cityMap
+        -long vehiclesSpawned
+        -long vehiclesArrived
+        -double averageWaitTimeMillis
+        -double averageTravelTimeMillis
+        -List~SavedVehicle~ unfinishedVehicles
+        +getCityMap() CityMap
+        +getUnfinishedVehicles() List~SavedVehicle~
+    }
+    class SavedVehicle {
+        <<record>>
+        +String type
+        +String originId
+        +String destinationId
+        +String customLabel
+    }
+    SimulationSnapshot "1" *-- "many" SavedVehicle : nested record
+    SimulationSnapshot "1" *-- "1" CityMap
+
     class EventLogger {
         -BufferedWriter writer
         +close()
@@ -190,29 +276,47 @@ classDiagram
     EventLogger ..|> TrafficObserver : implements
 
     class DefaultCityMapFactory {
-        <<utility>>
+        <<utility, legacy>>
         +createDefaultGrid() CityMap$
     }
     DefaultCityMapFactory ..> CityMap : builds
+    note for DefaultCityMapFactory "superseded by CsvCityMapLoader;\nkept for reference/tests only"
 
     class MainFrame {
         -SimulationEngine engine
         -CityPanel cityPanel
+        -CsvCityMapLoader persistence
         -JTextArea eventLog
+        +startSimulation()
+        +stopSimulation()
+        +spawnCar()
+        +loadCityMap(Path)
+        +saveSnapshot()
+        +loadSnapshot()
+        +exportStatistics()
     }
     MainFrame ..|> TrafficObserver : implements
     MainFrame --> SimulationEngine : controls
+    MainFrame ..> CsvCityMapLoader : uses
 
     class CityPanel {
         -SimulationEngine engine
         -Map~Intersection, Map~Direction, Road~~ incomingRoads
         -Map~String, Long~ lastPreemption
+        -Map~String, Vehicle~ labeledVehicles
         +paintComponent(Graphics)
+        +disposePanel()
     }
     CityPanel ..|> TrafficObserver : implements
     MainFrame "1" *-- "1" CityPanel
 
-    class InvalidRouteException
-    class CityMapLoadException
-    class SimulationStateException
+    class InvalidRouteException {
+        <<checked>>
+    }
+    class CityMapLoadException {
+        <<checked>>
+    }
+    class SimulationStateException {
+        <<unchecked>>
+    }
 ```
