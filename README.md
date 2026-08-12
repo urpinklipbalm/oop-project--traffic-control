@@ -6,8 +6,8 @@ Swing desktop GUI, file-based persistence, and Java concurrency
 throughout - see the [project description](.) for the full assignment
 brief.
 
-**Team:** repo owner, [Ayesha Kamran](https://github.com/Ayesha-Kamran),
-[Nameer Ahmed](https://github.com/nameer451).
+**Team:** [Asma Imran- CMS 481920](https://github.com/urpinklipbalm), [Ayesha Kamran- CMS 514562](https://github.com/Ayesha-Kamran),
+[Nameer Ahmed- CMS 454029](https://github.com/nameer451).
 
 ## What this is
 
